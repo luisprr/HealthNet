@@ -1,277 +1,197 @@
-# 🏥 HealthNet – Sistema de Rutas de Emergencia
+# HealthNet - Sistema de Rutas de Emergencia
 
-HealthNet es una aplicación web construida con **Streamlit**, **OSMnx**, **NetworkX** y **Folium** que simula un sistema de respuesta a emergencias médicas en la **Ciudad Autónoma de Buenos Aires, Argentina**.
+Sistema inteligente de optimización de rutas para ambulancias y servicios de emergencia médica, desarrollado con Python y Streamlit.
 
-El sistema genera una red vial de la ciudad, identifica hospitales y clínicas, crea pacientes y ambulancias sobre el grafo y permite calcular:
+## Descripción
 
-- **Ruta Simple** (Dijkstra, punto a punto).
-- **Ruta Múltiple Optimizada** (TSP heurístico: Vecino más cercano + 2-opt).
+HealthNet es una aplicación web que permite calcular rutas óptimas para ambulancias en entornos urbanos. Utiliza algoritmos avanzados de grafos para determinar las trayectorias más eficientes entre puntos de origen (ambulancias) y destinos (hospitales, clínicas, pacientes).
 
-Además, incluye una interfaz moderna con tema oscuro, barra superior tipo dashboard y panel lateral de configuración.
+El sistema cuenta con dos modos principales:
+- **Ruta Simple**: Calcula la trayectoria más rápida entre una ambulancia y un destino específico
+- **Ruta Múltiple**: Optimiza el recorrido cuando se necesita visitar varios puntos, minimizando el tiempo total
 
----
+## Características Principales
 
-## 🌐 Características principales
+- Visualización interactiva de mapas con Folium
+- Cálculo de rutas usando el algoritmo de Dijkstra para rutas simples
+- Optimización de rutas múltiples mediante TSP (Traveling Salesman Problem) con heurística de vecino más cercano y mejora 2-opt
+- Interfaz moderna y responsiva con diseño dark/teal
+- Marcadores diferenciados para hospitales, clínicas, pacientes y ambulancias
+- Capas de mapa personalizables
+- Estimación precisa de tiempos de viaje
 
-- Descarga y construcción de la red vial de **CABA** usando OSMnx.
-- Obtención de **POIs de salud**: `hospital` y `clinic`.
-- Generación aleatoria de:
-  - **200 pacientes**.
-  - **40 ambulancias**.
-- Cálculo de rutas:
-  - **Ruta Simple**: camino mínimo entre una ambulancia y un destino usando **Dijkstra** (`travel_time`).
-  - **Ruta Múltiple**:
-    - Orden de visita con heurística de **Vecino más cercano**.
-    - Mejora de la ruta con **2-opt**.
-    - Cálculo de la ruta completa concatenando los tramos óptimos.
-- Visualización en mapa interactivo con **Folium**:
-  - Red vial de la ciudad.
-  - Hospitales, clínicas, pacientes y ambulancias con íconos y colores diferenciados.
-  - Ruta resaltada ("Ruta de Emergencia").
-  - Leyenda personalizada.
-- UI mejorada:
-  - **Navbar fija** con nombre del sistema y métricas de nodos/aristas.
-  - **Sidebar** tipo panel de control.
-  - Tarjetas con estado de la ruta, tipo de cálculo y tiempo estimado.
-  - Pantalla de **loading** inicial con logo.
+## Requisitos del Sistema
 
----
+- Python 3.8 o superior
+- Conexión a internet (para cargar mapas y datos geográficos)
+- Navegador web moderno (Chrome, Firefox, Edge, Safari)
 
-## 🧱 Tecnologías utilizadas
+## Instalación
 
-- [Python](https://www.python.org/)
-- [Streamlit](https://streamlit.io/)
-- [OSMnx](https://osmnx.readthedocs.io/)
-- [NetworkX](https://networkx.org/)
-- [Folium](https://python-visualization.github.io/folium/)
-- [Pandas](https://pandas.pydata.org/)
-- [Pillow (PIL)](https://pillow.readthedocs.io/)
+### Paso 1: Descargar el proyecto
 
----
+Descarga los archivos del proyecto en tu computadora. Deberías tener:
+- El archivo principal `app.py` (o el nombre que tenga tu código)
+- El archivo `HealthNetLogo.png` (logo del sistema)
+- Este archivo README.md
 
-## 📁 Estructura del proyecto
+### Paso 2: Instalar Python
 
-Ejemplo de estructura mínima:
+Si no tienes Python instalado:
+1. Ve a [python.org](https://www.python.org/downloads/)
+2. Descarga Python 3.8 o superior
+3. Durante la instalación, marca la opción "Add Python to PATH"
 
+### Paso 3: Instalar las dependencias
+
+Abre una terminal o símbolo del sistema en la carpeta del proyecto y ejecuta:
 ```bash
-HealthNet/
-├── app.py
-├── requirements.txt
-└── HealthNetLogo.png   # opcional, logo usado en la UI
+pip install streamlit folium networkx osmnx pandas Pillow
 ```
 
-- **app.py**: Código principal de la aplicación Streamlit.
-- **requirements.txt**: Dependencias del proyecto.
-- **HealthNetLogo.png**: Logo que se muestra en la navbar, loading y sidebar (si no existe, la app sigue funcionando).
-
----
-
-## 📦 Requerimientos
-
-Asegúrate de tener instalado:
-
-- **Python 3.10+** (recomendado)
-- **pip**
-
-Además, en Windows puede requerir:
-
-- **Microsoft C++ Build Tools** (para algunas dependencias de OSMnx/NetworkX/Shapely, si no las tienes).
-
----
-
-## 🔧 Instalación
-
-1. Clona o descarga el repositorio en tu máquina:
-
+Si tienes problemas con la instalación, intenta instalar las bibliotecas una por una:
 ```bash
-git clone <URL_DEL_REPO>
-cd HealthNet
+pip install streamlit
+pip install folium
+pip install networkx
+pip install osmnx
+pip install pandas
+pip install Pillow
 ```
 
-2. Crea (opcional pero recomendado) un entorno virtual:
+## Uso
 
-```bash
-python -m venv venv
-venv\Scripts\activate  # Windows
-# o
-source venv/bin/activate  # Linux/macOS
-```
+### Iniciar la aplicación
 
-3. Instala las dependencias:
-
-```bash
-pip install -r requirements.txt
-```
-
-Si tienes problemas con OSMnx o sus dependencias, revisa la [documentación oficial de OSMnx](https://osmnx.readthedocs.io/) para tu sistema operativo.
-
----
-
-## ▶️ Ejecución de la aplicación
-
-Dentro de la carpeta del proyecto:
-
+1. Abre una terminal en la carpeta del proyecto
+2. Ejecuta el siguiente comando:
 ```bash
 streamlit run app.py
 ```
 
-Se abrirá la app en tu navegador por defecto (normalmente en `http://localhost:8501`).
+(Reemplaza `app.py` con el nombre real de tu archivo si es diferente)
 
----
+3. La aplicación se abrirá automáticamente en tu navegador
+4. Si no se abre automáticamente, ve a: `http://localhost:8501`
 
-## 🗺️ Funcionamiento general
+### Usar la aplicación
 
-### 1. Carga inicial de datos
+1. **Espera la carga inicial**: La primera vez puede tardar unos minutos en cargar todos los datos de la red vial
 
-Al iniciar, la app:
+2. **Seleccionar origen**: En el panel lateral, elige una ambulancia de la lista desplegable
 
-- Muestra una pantalla de loading con el logo de HealthNet.
-- Descarga la red vial de:
+3. **Seleccionar destinos**: Marca uno o más destinos (hospitales, clínicas, pacientes)
 
+4. **Calcular ruta**:
+   - Haz clic en "Ruta Simple" si seleccionaste un solo destino
+   - Haz clic en "Ruta Múltiple" si seleccionaste varios destinos
+
+5. **Ver resultados**: El mapa mostrará la ruta calculada con el tiempo estimado
+
+6. **Resetear**: Usa el botón "Resetear Sistema" para volver al estado inicial
+
+## Configuración
+
+### Cambiar la ubicación geográfica
+
+Por defecto, el sistema está configurado para Buenos Aires, Argentina. Para cambiar la ubicación:
+
+1. Abre el archivo del código
+2. Busca la línea que dice:
 ```python
-PLACE_NAME = "Ciudad Autónoma de Buenos Aires, Argentina"
+   PLACE_NAME = "Ciudad Autónoma de Buenos Aires, Argentina"
+```
+3. Cámbiala por tu ciudad, por ejemplo:
+```python
+   PLACE_NAME = "Lima, Perú"
+```
+   o
+```python
+   PLACE_NAME = "Madrid, España"
 ```
 
-- Aplica un filtro de tipos de vía:
+### Personalizar colores
 
+Puedes modificar los colores de los marcadores editando el diccionario `COLORES`:
 ```python
-custom_filter='["highway"~"primary|secondary|tertiary|residential|unclassified"]'
+COLORES = {
+    "hospital": "#e63946",      # Rojo
+    "clinic": "#a06cd5",        # Púrpura
+    "paciente": "#457b9d",      # Azul
+    "ambulancia": "#2a9d8f",    # Verde azulado
+}
 ```
 
-- Calcula velocidades y tiempos de viaje por arista (`edge_speeds` y `edge_travel_times`).
-- Obtiene hospitales y clínicas desde OSM (`POI_TAGS = {"amenity": ["hospital", "clinic"]}`).
-- Genera:
-  - **200 pacientes** (nodos aleatorios de la red).
-  - **40 ambulancias** (nodos aleatorios de la red).
-
-Todo esto se cachea con:
-
-```python
-@st.cache_resource
-def load_data_cached():
-    return cargar_y_procesar_datos(PLACE_NAME)
+## Estructura del Proyecto
+```
+HealthNet/
+│
+├── app.py                    # Código principal de la aplicación
+├── HealthNetLogo.png         # Logo del sistema
+├── README.md                 # Este archivo
+│
+└── (archivos generados automáticamente)
+    ├── mapa_base.html
+    ├── ruta_simple_emergencia.html
+    └── ruta_multiple_emergencia.html
 ```
 
-### 2. Interfaz de usuario
+## Algoritmos Utilizados
 
-La app tiene:
+### Ruta Simple - Dijkstra
+Encuentra el camino más corto entre dos puntos considerando los tiempos de viaje en cada segmento de la red vial.
 
-**Navbar superior:**
-- Logo y nombre: **HealthNet – Sistema de Rutas de Emergencia**.
-- Métricas: cantidad de nodos y aristas del grafo.
+### Ruta Múltiple - TSP con 2-opt
+1. **Nearest Neighbor**: Construye una ruta inicial visitando siempre el destino más cercano
+2. **2-opt**: Mejora iterativamente la ruta intercambiando segmentos hasta que no se puedan hacer más mejoras
 
-**Sidebar (Panel de Control):**
-- Logo y título del panel.
-- Sección "Ambulancia de Origen":
-  - `selectbox` para elegir una ambulancia.
-- Sección "Puntos de Destino":
-  - `multiselect` para elegir pacientes/hospitales/clinics.
-- Sección "Opciones de Cálculo":
-  - Botón **Ruta Simple**.
-  - Botón **Ruta Múltiple**.
-  - Botón **Resetear Sistema**.
-- Tarjeta con:
-  - Tiempo estimado de la ruta.
-  - Tipo de ruta (simple o multiple) cuando se ha calculado.
+## Solución de Problemas
 
-**Zona principal:**
-- Mensaje de estado:
-  - "Vista Base Activa" (sin rutas).
-  - "Ruta Simple Calculada".
-  - "Ruta Múltiple Optimizada".
-- Tarjetas con:
-  - Tiempo total.
-  - Cantidad de destinos/paradas.
-- Mapa interactivo incrustado (HTML generado con Folium).
+### La aplicación no inicia
+- Verifica que todas las dependencias estén instaladas
+- Asegúrate de estar en la carpeta correcta del proyecto
+- Comprueba que el archivo `HealthNetLogo.png` esté en la misma carpeta
 
-### 3. Cálculo de rutas
+### Error al cargar datos geográficos
+- Verifica tu conexión a internet
+- Intenta con una ciudad más grande si tu ubicación no tiene suficientes datos
 
-#### 🔹 Ruta Simple
+### El mapa no se muestra
+- Refresca la página del navegador
+- Verifica que no haya bloqueadores de JavaScript activos
 
-**Requisitos:**
-- 1 ambulancia seleccionada.
-- Al menos 1 destino.
-- Si hay más de 1 destino seleccionado, se muestra un aviso y solo se usa el primer destino.
-
-**Algoritmo:**
-```python
-nx.dijkstra_path(G, src, dst, weight="travel_time")
+### Instalación de osmnx falla
+OSMnx puede requerir dependencias adicionales. En Windows:
+```bash
+pip install wheel
+pip install osmnx
 ```
 
-**Resultado:**
-- Ruta y tiempo para el par (ambulancia, destino).
-- Se genera un HTML con la ruta resaltada: `ruta_simple_emergencia.html`.
+En Mac/Linux:
+```bash
+pip install osmnx
+```
 
-#### 🔹 Ruta Múltiple (TSP)
+## Requisitos Técnicos
 
-**Requisitos:**
-- 1 ambulancia de origen.
-- Mínimo 2 destinos.
+- **Memoria RAM**: Mínimo 4GB recomendado (8GB para ciudades grandes)
+- **Espacio en disco**: Al menos 500MB libres
+- **Procesador**: Cualquier procesador moderno de doble núcleo o superior
 
-**Pasos:**
-1. Desde el nodo de origen, se aplica **Vecino más cercano** sobre los destinos.
-2. Se aplica **2-opt** sobre el orden obtenido para mejorar la ruta.
-3. Se calcula la ruta completa concatenando tramos óptimos entre cada par consecutivo: `calcular_ruta_optima` (Dijkstra por tramo).
+## Créditos
 
-**Resultado:**
-- Ruta completa (lista de node_ids).
-- Tiempo total acumulado.
-- Orden de visita de las paradas.
-- HTML generado: `ruta_multiple_emergencia.html`.
+Desarrollado con:
+- Streamlit - Framework de aplicaciones web
+- Folium - Visualización de mapas
+- OSMnx - Datos de OpenStreetMap
+- NetworkX - Algoritmos de grafos
 
-### 4. Visualización en el mapa
+## Notas Adicionales
 
-El mapa se genera con `folium.Map` y:
+- La primera carga puede tardar varios minutos dependiendo del tamaño de la ciudad
+- Los datos se cachean localmente para mejorar el rendimiento en ejecuciones posteriores
+- El sistema genera 200 pacientes y 40 ambulancias de manera aleatoria para demostración
 
-**Red vial:**
-- Capa principal oscura (para contexto).
-- Capa adicional "Red vial" con control de capas.
+## Licencia
 
-**Ruta de emergencias:**
-- Se dibuja con `ox.routing.route_to_gdf` + `GeoJson`.
-- Color rojo, grosor mayor, alta opacidad.
-
-**Capas de entidades:**
-- Hospitales.
-- Clínicas.
-- Pacientes.
-- Ambulancias.
-
-**Uso de:**
-- `MarkerCluster` para hospitales y clínicas.
-- `CircleMarker` para pacientes y ambulancias "normales".
-- `Marker` especial para paradas de la ruta (ORIGEN, PARADA 1, PARADA 2, etc.).
-
-**Leyenda** fija en la esquina inferior derecha.
-
-**Controles:**
-- Fullscreen.
-- LocateControl.
-- LayerControl.
-
----
-
-## 🎨 Estilo y diseño
-
-- **Fuentes:**
-  - Títulos: Merriweather.
-  - Textos: Lato.
-- Tema oscuro con degradados y efecto glassmorphism.
-- Navbar fija con métricas en tiempo de ejecución.
-- Tarjetas ("glass-card") para estados, tiempos y avisos.
-- Popups de mapa customizados con CSS inyectado en el HTML del mapa.
-
----
-
-## ⚠️ Notas y limitaciones
-
-- Los pacientes y ambulancias se generan de forma aleatoria cada vez que se construye el grafo.
-- El cálculo de rutas depende de la calidad de datos de OpenStreetMap para la zona de CABA.
-- La optimización TSP es heurística, no garantiza la ruta absolutamente óptima, pero mejora significativamente la ruta inicial.
-
----
-
-## 📜 Licencia
-
-Este proyecto puede adaptarse a las necesidades académicas y de experimentación con algoritmos de rutas, grafos y visualización geoespacial.
-Asegúrate de respetar los términos de uso de OpenStreetMap y las bibliotecas utilizadas.
+Este proyecto es de código abierto y está disponible para uso educativo y de demostración.
