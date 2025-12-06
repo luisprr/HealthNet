@@ -9,7 +9,7 @@ from folium.plugins import Fullscreen, LocateControl, MarkerCluster
 from streamlit.components.v1 import html
 from PIL import Image
 import base64
-
+import numpy as np
 
 PLACE_NAME = "Ciudad Autónoma de Buenos Aires, Argentina"
 POI_TAGS = {"amenity": ["hospital", "clinic"]}
