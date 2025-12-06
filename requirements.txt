@@ -4,3 +4,4 @@ networkx
 folium
 pandas
 Pillow
+scipy
