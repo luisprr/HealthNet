@@ -85,6 +85,7 @@ def cargar_y_procesar_datos(lugar):
                 "lon": nodo["x"],
                 "tipo": "paciente",
                 "nombre": f"Paciente {i+1}",
+                "node_id": n,   
             }
         )
 
@@ -97,16 +98,44 @@ def cargar_y_procesar_datos(lugar):
                 "lon": nodo["x"],
                 "tipo": "ambulancia",
                 "nombre": f"Ambulancia {j+1}",
+                "node_id": n,  
             }
         )
 
     nodos_df = pd.DataFrame(nodes)
 
-    node_ids = ox.nearest_nodes(G, X=nodos_df["lon"], Y=nodos_df["lat"])
-    nodos_df["node_id"] = node_ids
+    if "node_id" not in nodos_df.columns:
+        nodos_df["node_id"] = pd.NA
+
+    mask_missing = nodos_df["node_id"].isna()
+
+    if mask_missing.any():
+        print("📍 Calculando nodos más cercanos para hospitales/clínicas (sin SciPy)...")
+
+        node_ids_list = list(G.nodes())
+        xs = np.array([G.nodes[n]["x"] for n in node_ids_list])  
+        ys = np.array([G.nodes[n]["y"] for n in node_ids_list])  
+
+        def nearest_node(lat, lon):
+            d2 = (xs - lon) ** 2 + (ys - lat) ** 2
+            idx = int(d2.argmin())
+            return node_ids_list[idx]
+
+        lat_series = nodos_df.loc[mask_missing, "lat"]
+        lon_series = nodos_df.loc[mask_missing, "lon"]
+
+        nodos_df.loc[mask_missing, "node_id"] = [
+            nearest_node(lat, lon) for lat, lon in zip(lat_series, lon_series)
+        ]
 
     for _, row in nodos_df.iterrows():
-        G.nodes[row["node_id"]].update(
+        nid = row["node_id"]
+        try:
+            nid = int(nid)
+        except Exception:
+            pass
+
+        G.nodes[nid].update(
             {
                 "custom_poi": True,
                 "tipo": row["tipo"],
@@ -116,7 +145,6 @@ def cargar_y_procesar_datos(lugar):
 
     print("✓ Datos procesados correctamente\n")
     return G, nodos_df
-
 
 def calcular_ruta_optima(G, src_node, dst_node):
     try:
