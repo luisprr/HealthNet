@@ -191,7 +191,3 @@ Desarrollado con:
 - La primera carga puede tardar varios minutos dependiendo del tamaño de la ciudad
 - Los datos se cachean localmente para mejorar el rendimiento en ejecuciones posteriores
 - El sistema genera 200 pacientes y 40 ambulancias de manera aleatoria para demostración
-
-## Licencia
-
-Este proyecto es de código abierto y está disponible para uso educativo y de demostración.
