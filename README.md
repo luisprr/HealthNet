@@ -94,21 +94,22 @@ streamlit run app.py
 
 ### Cambiar la ubicación geográfica
 
-Por defecto, el sistema está configurado para Buenos Aires, Argentina. Para cambiar la ubicación:
+Por defecto, el sistema está configurado para el distrito de Miraflores en Lima, Perú. Para cambiar la ubicación:
 
 1. Abre el archivo del código
 2. Busca la línea que dice:
 ```python
-   PLACE_NAME = "Ciudad Autónoma de Buenos Aires, Argentina"
+   PLACE_NAME = "Miraflores, Lima, Peru"
 ```
-3. Cámbiala por tu ciudad, por ejemplo:
+3. Cámbiala por una ciudad completa, por ejemplo:
 ```python
    PLACE_NAME = "Lima, Perú"
 ```
    o
 ```python
-   PLACE_NAME = "Madrid, España"
+   PLACE_NAME = "Ciudad Autónoma de Buenos Aires, Argentina"
 ```
+Colocar áreas más grandes, exigirá más recursos.
 
 ### Personalizar colores
 
@@ -191,3 +192,4 @@ Desarrollado con:
 - La primera carga puede tardar varios minutos dependiendo del tamaño de la ciudad
 - Los datos se cachean localmente para mejorar el rendimiento en ejecuciones posteriores
 - El sistema genera 200 pacientes y 40 ambulancias de manera aleatoria para demostración
+
