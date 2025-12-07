@@ -11,7 +11,7 @@ from PIL import Image
 import base64
 import numpy as np
 
-PLACE_NAME = "Ciudad Autónoma de Buenos Aires, Argentina"
+PLACE_NAME = "Miraflores, Lima, Peru"
 POI_TAGS = {"amenity": ["hospital", "clinic"]}
 
 COLORES = {
