@@ -109,7 +109,7 @@ Por defecto, el sistema está configurado para el distrito de Miraflores en Lima
 ```python
    PLACE_NAME = "Ciudad Autónoma de Buenos Aires, Argentina"
 ```
-Colocar áreas más grandes, exigirá más recursos.
+Se utiliza Miraflores porque su tamaño permite una carga rápida y un menor consumo de recursos. Si deseas usar una ciudad completa (como "Lima, Perú" o "Ciudad Autónoma de Buenos Aires, Argentina"), la aplicación seguirá funcionando, pero demandará más recursos y el tiempo de carga será mayor.
 
 ### Personalizar colores
 
@@ -192,4 +192,5 @@ Desarrollado con:
 - La primera carga puede tardar varios minutos dependiendo del tamaño de la ciudad
 - Los datos se cachean localmente para mejorar el rendimiento en ejecuciones posteriores
 - El sistema genera 200 pacientes y 40 ambulancias de manera aleatoria para demostración
+
 
