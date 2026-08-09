@@ -1,196 +1,146 @@
-# HealthNet - Sistema de Rutas de Emergencia
+# HealthNet
 
-Sistema inteligente de optimización de rutas para ambulancias y servicios de emergencia médica, desarrollado con Python y Streamlit.
+HealthNet es un simulador web de rutas de emergencia para Miraflores, Lima. Usa
+la red vial de OpenStreetMap, calcula trayectos por tiempo estimado y presenta el
+resultado en una interfaz de Streamlit con mapas Folium.
 
-## Descripción
+> HealthNet es una demostración académica. Las ambulancias y los pacientes son
+> simulados, y los tiempos no incorporan tráfico en vivo ni sustituyen un sistema
+> de despacho médico real.
 
-HealthNet es una aplicación web que permite calcular rutas óptimas para ambulancias en entornos urbanos. Utiliza algoritmos avanzados de grafos para determinar las trayectorias más eficientes entre puntos de origen (ambulancias) y destinos (hospitales, clínicas, pacientes).
+## Funciones
 
-El sistema cuenta con dos modos principales:
-- **Ruta Simple**: Calcula la trayectoria más rápida entre una ambulancia y un destino específico
-- **Ruta Múltiple**: Optimiza el recorrido cuando se necesita visitar varios puntos, minimizando el tiempo total
+- **Ruta simple:** aplica Dijkstra para conectar una ambulancia con un destino.
+- **Ruta múltiple:** usa vecino más cercano y 2-opt para ordenar dos o más
+  destinos, manteniendo fijo el origen.
+- Valida que todos los destinos puedan visitarse en un único recorrido dirigido;
+  si no es posible, rechaza el cálculo completo y explica qué puntos intervienen.
+- Mantiene la identidad de hospitales, clínicas, pacientes y ambulancias aunque
+  varias entidades estén ancladas al mismo nodo vial.
+- Muestra capas, popups, leyenda, itinerario numerado y tiempo estimado.
+- Incluye un tema claro y responsivo basado en la paleta teal de HealthNet.
 
-## Características Principales
+## Requisitos
 
-- Visualización interactiva de mapas con Folium
-- Cálculo de rutas usando el algoritmo de Dijkstra para rutas simples
-- Optimización de rutas múltiples mediante TSP (Traveling Salesman Problem) con heurística de vecino más cercano y mejora 2-opt
-- Interfaz moderna y responsiva con diseño dark/teal
-- Marcadores diferenciados para hospitales, clínicas, pacientes y ambulancias
-- Capas de mapa personalizables
-- Estimación precisa de tiempos de viaje
+- Python 3.11 o superior.
+- Conexión a internet para la primera carga y para actualizar los datos vencidos.
+- Navegador moderno con JavaScript habilitado.
 
-## Requisitos del Sistema
-
-- Python 3.8 o superior
-- Conexión a internet (para cargar mapas y datos geográficos)
-- Navegador web moderno (Chrome, Firefox, Edge, Safari)
+Las versiones verificadas están fijadas en `requirements.txt`.
 
 ## Instalación
 
-### Paso 1: Descargar el proyecto
-
-Descarga los archivos del proyecto en tu computadora. Deberías tener:
-- El archivo principal `app.py` (o el nombre que tenga tu código)
-- El archivo `HealthNetLogo.png` (logo del sistema)
-- Este archivo README.md
-
-### Paso 2: Instalar Python
-
-Si no tienes Python instalado:
-1. Ve a [python.org](https://www.python.org/downloads/)
-2. Descarga Python 3.8 o superior
-3. Durante la instalación, marca la opción "Add Python to PATH"
-
-### Paso 3: Instalar las dependencias
-
-Abre una terminal o símbolo del sistema en la carpeta del proyecto y ejecuta:
 ```bash
-pip install streamlit folium networkx osmnx pandas Pillow
+python -m venv .venv
 ```
 
-Si tienes problemas con la instalación, intenta instalar las bibliotecas una por una:
-```bash
-pip install streamlit
-pip install folium
-pip install networkx
-pip install osmnx
-pip install pandas
-pip install Pillow
+En Windows:
+
+```powershell
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-## Uso
+En macOS o Linux:
 
-### Iniciar la aplicación
+```bash
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
 
-1. Abre una terminal en la carpeta del proyecto
-2. Ejecuta el siguiente comando:
+## Ejecución
+
 ```bash
 streamlit run app.py
 ```
 
-(Reemplaza `app.py` con el nombre real de tu archivo si es diferente)
+La aplicación queda disponible normalmente en `http://localhost:8501`.
 
-3. La aplicación se abrirá automáticamente en tu navegador
-4. Si no se abre automáticamente, ve a: `http://localhost:8501`
+### Uso
 
-### Usar la aplicación
+1. Selecciona una ambulancia.
+2. Selecciona uno o más hospitales, clínicas o pacientes.
+3. Usa **Ruta simple** para cubrir el primer destino o **Ruta múltiple** para
+   visitar todos los seleccionados.
+4. Revisa la secuencia, el tiempo y la traza sobre el mapa.
+5. Usa **Resetear sistema** para limpiar ruta, ambulancia y destinos.
 
-1. **Espera la carga inicial**: La primera vez puede tardar unos minutos en cargar todos los datos de la red vial
+## Datos y caché
 
-2. **Seleccionar origen**: En el panel lateral, elige una ambulancia de la lista desplegable
+La primera ejecución descarga la red de conducción y los centros médicos desde
+OpenStreetMap. HealthNet conserva durante siete días:
 
-3. **Seleccionar destinos**: Marca uno o más destinos (hospitales, clínicas, pacientes)
+- `.cache/healthnet.graphml`: red vial procesada.
+- `.cache/entidades.json`: hospitales, clínicas y entidades simuladas.
+- `.cache/metadata.json`: versión, parámetros y fecha de creación.
 
-4. **Calcular ruta**:
-   - Haz clic en "Ruta Simple" si seleccionaste un solo destino
-   - Haz clic en "Ruta Múltiple" si seleccionaste varios destinos
+El metadata incluye el lugar, cantidades simuladas, semilla y configuración de
+red. Si cualquiera cambia, el caché se invalida. GraphML y JSON evitan cargar
+objetos ejecutables mediante `pickle`. La red se restringe al mayor componente
+fuertemente conectado para garantizar rutas entre sus nodos.
 
-5. **Ver resultados**: El mapa mostrará la ruta calculada con el tiempo estimado
-
-6. **Resetear**: Usa el botón "Resetear Sistema" para volver al estado inicial
+Los nombres procedentes de OpenStreetMap se escapan antes de insertarse en HTML.
 
 ## Configuración
 
-### Cambiar la ubicación geográfica
+Los parámetros principales están al inicio de `app.py`:
 
-Por defecto, el sistema está configurado para el distrito de Miraflores en Lima, Perú. Para cambiar la ubicación:
-
-1. Abre el archivo del código
-2. Busca la línea que dice:
 ```python
-   PLACE_NAME = "Miraflores, Lima, Peru"
-```
-3. Cámbiala por una ciudad completa, por ejemplo:
-```python
-   PLACE_NAME = "Lima, Perú"
-```
-   o
-```python
-   PLACE_NAME = "Ciudad Autónoma de Buenos Aires, Argentina"
-```
-Se utiliza Miraflores porque su tamaño permite una carga rápida y un menor consumo de recursos. Si deseas usar una ciudad completa (como "Lima, Perú" o "Ciudad Autónoma de Buenos Aires, Argentina"), la aplicación seguirá funcionando, pero demandará más recursos y el tiempo de carga será mayor.
-
-### Personalizar colores
-
-Puedes modificar los colores de los marcadores editando el diccionario `COLORES`:
-```python
-COLORES = {
-    "hospital": "#e63946",      # Rojo
-    "clinic": "#a06cd5",        # Púrpura
-    "paciente": "#457b9d",      # Azul
-    "ambulancia": "#2a9d8f",    # Verde azulado
-}
+PLACE_NAME = "Miraflores, Lima, Peru"
+N_PACIENTES = 200
+N_AMBULANCIAS = 40
+SEED = 7
 ```
 
-## Estructura del Proyecto
+La paleta compartida por la interfaz y el mapa se encuentra en el diccionario
+`C`. La configuración nativa de Streamlit está en `.streamlit/config.toml` y
+debe mantenerse coordinada con esa paleta.
+
+## Algoritmos
+
+### Ruta simple
+
+`networkx.dijkstra_path` minimiza `travel_time`, calculado por OSMnx a partir de
+la longitud y velocidad estimada de cada vía.
+
+### Ruta múltiple
+
+1. Calcula una matriz dirigida de tiempos con un Dijkstra por punto.
+2. Comprueba que el conjunto completo tenga un orden viable.
+3. Construye una solución inicial evitando entrar prematuramente en componentes
+   sin salida.
+4. Aplica 2-opt sin mover el origen.
+5. Verifica cada tramo y solo publica el resultado si visitó todos los destinos.
+
+Es un TSP abierto heurístico: busca una buena ruta, no garantiza el óptimo global.
+
+## Pruebas
+
+```bash
+python -m unittest discover -s tests -v
 ```
+
+Las pruebas cubren rutas directas, grafos dirigidos, destinos imposibles,
+entidades colocadas en un mismo nodo, escape HTML, reseteo y caché GraphML/JSON.
+GitHub Actions ejecuta estas validaciones en `main`, `develop` y pull requests.
+
+## Estructura
+
+```text
 HealthNet/
-│
-├── app.py                    # Código principal de la aplicación
-├── HealthNetLogo.png         # Logo del sistema
-├── README.md                 # Este archivo
-│
-└── (archivos generados automáticamente)
-    ├── mapa_base.html
-    ├── ruta_simple_emergencia.html
-    └── ruta_multiple_emergencia.html
+├── .github/workflows/tests.yml
+├── .streamlit/config.toml
+├── tests/
+├── app.py
+├── HealthNetLogo.png
+├── README.md
+└── requirements.txt
 ```
 
-## Algoritmos Utilizados
+## Tecnologías
 
-### Ruta Simple - Dijkstra
-Encuentra el camino más corto entre dos puntos considerando los tiempos de viaje en cada segmento de la red vial.
-
-### Ruta Múltiple - TSP con 2-opt
-1. **Nearest Neighbor**: Construye una ruta inicial visitando siempre el destino más cercano
-2. **2-opt**: Mejora iterativamente la ruta intercambiando segmentos hasta que no se puedan hacer más mejoras
-
-## Solución de Problemas
-
-### La aplicación no inicia
-- Verifica que todas las dependencias estén instaladas
-- Asegúrate de estar en la carpeta correcta del proyecto
-- Comprueba que el archivo `HealthNetLogo.png` esté en la misma carpeta
-
-### Error al cargar datos geográficos
-- Verifica tu conexión a internet
-- Intenta con una ciudad más grande si tu ubicación no tiene suficientes datos
-
-### El mapa no se muestra
-- Refresca la página del navegador
-- Verifica que no haya bloqueadores de JavaScript activos
-
-### Instalación de osmnx falla
-OSMnx puede requerir dependencias adicionales. En Windows:
-```bash
-pip install wheel
-pip install osmnx
-```
-
-En Mac/Linux:
-```bash
-pip install osmnx
-```
-
-## Requisitos Técnicos
-
-- **Memoria RAM**: Mínimo 4GB recomendado (8GB para ciudades grandes)
-- **Espacio en disco**: Al menos 500MB libres
-- **Procesador**: Cualquier procesador moderno de doble núcleo o superior
-
-## Créditos
-
-Desarrollado con:
-- Streamlit - Framework de aplicaciones web
-- Folium - Visualización de mapas
-- OSMnx - Datos de OpenStreetMap
-- NetworkX - Algoritmos de grafos
-
-## Notas Adicionales
-
-- La primera carga puede tardar varios minutos dependiendo del tamaño de la ciudad
-- Los datos se cachean localmente para mejorar el rendimiento en ejecuciones posteriores
-- El sistema genera 200 pacientes y 40 ambulancias de manera aleatoria para demostración
-
-
+- Streamlit
+- OSMnx y OpenStreetMap
+- NetworkX
+- Folium
+- pandas, NumPy y Shapely
