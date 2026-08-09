@@ -1,8 +1,7 @@
-streamlit
-osmnx
-networkx
-folium
-pandas
-Pillow
-scipy
-numpy
+streamlit==1.51.0
+osmnx==2.0.6
+networkx==3.5
+folium==0.20.0
+pandas==2.3.3
+numpy==2.3.3
+shapely==2.1.2

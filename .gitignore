@@ -1,0 +1,23 @@
+# Artefactos generados por la aplicacion
+mapa_base.html
+ruta_simple_emergencia.html
+ruta_multiple_emergencia.html
+
+# Caches
+.cache/
+cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Credenciales locales
+.env
+.env.*
+.streamlit/secrets.toml

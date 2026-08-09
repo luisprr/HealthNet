@@ -1,1341 +1,1731 @@
+"""HealthNet - Sistema de rutas de emergencia.
+
+Optimizacion de rutas para ambulancias sobre la red vial real (OpenStreetMap)
+del distrito configurado en PLACE_NAME.
+
+Ejecutar con:  streamlit run app.py
+"""
+
+import base64
+import hashlib
+import html as html_lib
+import json
+import logging
+import math
 import os
 import random
+import tempfile
+import time
+from itertools import pairwise
+from pathlib import Path
+
 import folium
 import networkx as nx
+import numpy as np
 import osmnx as ox
 import pandas as pd
+import shapely
 import streamlit as st
-from folium.plugins import Fullscreen, LocateControl, MarkerCluster
+from folium.plugins import Fullscreen, LocateControl
+from shapely.ops import linemerge
 from streamlit.components.v1 import html
-from PIL import Image
-import base64
-import numpy as np
+
+# --------------------------------------------------------------------------- #
+# CONFIGURACION
+# --------------------------------------------------------------------------- #
 
 PLACE_NAME = "Miraflores, Lima, Peru"
 POI_TAGS = {"amenity": ["hospital", "clinic"]}
 
-COLORES = {
-    "hospital": "#e63946",
-    "clinic": "#a06cd5",
-    "paciente": "#457b9d",
-    "ambulancia": "#2a9d8f",
+N_PACIENTES = 200
+N_AMBULANCIAS = 40
+SEED = 7
+
+SIN_ASIGNAR = "Sin asignar"  # Centinela del selector de unidad de origen.
+
+BASE_DIR = Path(__file__).resolve().parent
+LOGO_PATH = BASE_DIR / "HealthNetLogo.png"
+CACHE_DIR = BASE_DIR / ".cache"
+CACHE_GRAPH_FILE = CACHE_DIR / "healthnet.graphml"
+CACHE_ENTITIES_FILE = CACHE_DIR / "entidades.json"
+CACHE_META_FILE = CACHE_DIR / "metadata.json"
+CACHE_VERSION = 2
+CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+
+LOGGER = logging.getLogger("healthnet")
+
+# Tolerancia de simplificacion de la traza en grados (~2 m). Aligera el GeoJSON
+# sin diferencia visible a escala urbana.
+SIMPLIFICAR_GRADOS = 0.00002
+PRECISION_GRADOS = 1e-5
+
+# --- Paleta clara -------------------------------------------------------- #
+C = {
+    "bg": "#FFFFFF",
+    "lienzo": "#F4F6F6",
+    "surface": "#FFFFFF",
+    "surface_2": "#F7F9F9",
+    "line": "#E2E7E8",
+    "line_soft": "#EEF1F2",
+    "text": "#1B2426",
+    "text_2": "#5A6B70",
+    "text_3": "#93A2A7",
+    "accent": "#0F766E",
+    "accent_hover": "#0C5F59",
+    "hospital": "#E05252",
+    "clinic": "#9B7EDE",
+    "paciente": "#4E7F9E",
+    "ambulancia": "#17A08C",
+    "ruta": "#D93B48",
+    # Barra superior: marca y cifras en teal, etiquetas en gris accesible.
+    "nav_marca": "#0F766E",
+    "nav_valor": "#0F766E",
+    "nav_label": "#57767E",  # 4.9:1 sobre blanco
+    "nav_sep": "#C4D6D9",
 }
 
-LOGO_PATH = r"HealthNetLogo.png"
+COLORES = {
+    "hospital": C["hospital"],
+    "clinic": C["clinic"],
+    "paciente": C["paciente"],
+    "ambulancia": C["ambulancia"],
+}
 
-def get_logo_base64():
-    try:
-        with open(LOGO_PATH, "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except Exception as e:
-        print(f"No se pudo cargar el logo: {e}")
-        return None
+ETIQUETAS = {
+    "hospital": "Hospital",
+    "clinic": "Clínica",
+    "paciente": "Paciente",
+    "ambulancia": "Ambulancia",
+}
 
-def cargar_y_procesar_datos(lugar):
-    print(f"🏥 Cargando red vial de {lugar}...")
-    ox.settings.use_cache = True
+PLURALES = {
+    "hospital": "Hospitales",
+    "clinic": "Clínicas",
+    "paciente": "Pacientes",
+    "ambulancia": "Ambulancias",
+}
+
+# Marca que precede a cada destino en el buscador y en sus chips. Las etiquetas
+# nativas del multiselect no admiten color por elemento, asi que el tipo se
+# distingue por la forma del simbolo. Son glifos de texto, no emoji.
+PUNTO = {"hospital": "●", "clinic": "◆", "paciente": "○"}
+
+TIPOS_DESTINO = ("hospital", "clinic", "paciente")
+
+
+# --------------------------------------------------------------------------- #
+# CARGA Y PROCESAMIENTO DE DATOS
+# --------------------------------------------------------------------------- #
+
+
+def _construir_grafo(lugar):
+    """Descarga una red vial dirigida en la que todos los nodos son alcanzables."""
+    # HealthNet administra un cache con expiracion. Desactivar el cache interno
+    # de OSMnx evita reutilizar indefinidamente una respuesta antigua de Overpass.
+    ox.settings.use_cache = False
     ox.settings.log_console = False
 
-    G = ox.graph_from_place(
-        lugar,
-        network_type="drive",
-        custom_filter='["highway"~"primary|secondary|tertiary|residential|unclassified"]',
-    )
+    G = ox.graph_from_place(lugar, network_type="drive")
+    componentes = list(nx.strongly_connected_components(G))
+    if not componentes:
+        raise RuntimeError(f"OpenStreetMap no devolvio una red vial para {lugar}.")
+    G = G.subgraph(max(componentes, key=len)).copy()
     G = ox.add_edge_speeds(G)
     G = ox.add_edge_travel_times(G)
+    return G
 
-    print(f"✓ Grafo: {G.number_of_nodes()} nodos, {G.number_of_edges()} aristas")
 
-    try:
-        pois_gdf = ox.features.features_from_place(lugar, POI_TAGS)
-        print(f"✓ POIs obtenidos: {len(pois_gdf)}")
-    except Exception as e:
-        print(f"⚠ No se pudieron obtener POIs: {e}")
-        pois_gdf = pd.DataFrame()
+def _descargar_pois(lugar):
+    """Obtiene hospitales y clinicas. Devuelve una lista de dicts de nodos."""
+    pois = ox.features_from_place(lugar, POI_TAGS)
+    if pois.empty:
+        raise RuntimeError(f"No se encontraron hospitales o clinicas en {lugar}.")
 
-    nodes = []
+    pois = pois[pois.geometry.notna()]
+    registros = []
+    for indice, poi in pois.iterrows():
+        tipo = poi.get("amenity") or "hospital"
+        if tipo not in POI_TAGS["amenity"]:
+            continue
+        centro = poi.geometry.representative_point()
+        nombre = poi.get("name")
+        if not isinstance(nombre, str) or not nombre.strip():
+            nombre = f"{ETIQUETAS.get(tipo, str(tipo).capitalize())} sin nombre"
+        partes_id = indice if isinstance(indice, tuple) else (indice,)
+        registros.append(
+            {
+                "entity_id": "osm:" + ":".join(map(str, partes_id)),
+                "lat": centro.y,
+                "lon": centro.x,
+                "tipo": tipo,
+                "nombre": nombre,
+            }
+        )
+    if not registros:
+        raise RuntimeError(
+            f"No se encontraron hospitales o clinicas validos en {lugar}."
+        )
+    return registros
 
-    if not pois_gdf.empty:
-        pois_gdf = pois_gdf[pois_gdf.geometry.notna()]
-        for _, poi in pois_gdf.iterrows():
-            geom = poi.geometry.centroid
-            tipo = poi.get("amenity") or "hospital"
-            nombre = (
-                poi.get("name")
-                if isinstance(poi.get("name"), str)
-                else f"{tipo.capitalize()} sin nombre"
-            )
-            nodes.append(
+
+def _generar_moviles(G, rng):
+    """Crea pacientes y ambulancias sobre nodos reales de la red vial."""
+    disponibles = list(G.nodes())
+    total = N_PACIENTES + N_AMBULANCIAS
+    if len(disponibles) < total:
+        raise RuntimeError(
+            f"La red solo tiene {len(disponibles)} nodos y se requieren {total} "
+            "para ubicar pacientes y ambulancias sin duplicados."
+        )
+    elegidos = iter(rng.sample(disponibles, total))
+    registros = []
+
+    for prefijo, tipo, cantidad in (
+        ("Paciente", "paciente", N_PACIENTES),
+        ("Ambulancia", "ambulancia", N_AMBULANCIAS),
+    ):
+        for i in range(1, cantidad + 1):
+            n = next(elegidos)
+            registros.append(
                 {
-                    "lat": geom.y,
-                    "lon": geom.x,
+                    "entity_id": f"{tipo}:{i}",
+                    "lat": G.nodes[n]["y"],
+                    "lon": G.nodes[n]["x"],
                     "tipo": tipo,
-                    "nombre": nombre,
+                    "nombre": f"{prefijo} {i}",
+                    "node_id": n,
                 }
             )
 
-    posibles = list(G.nodes())
+    return registros
 
-    print("🧍 Generando 200 pacientes...")
-    for i, n in enumerate(random.sample(posibles, min(200, len(posibles)))):
-        nodo = G.nodes[n]
-        nodes.append(
-            {
-                "lat": nodo["y"],
-                "lon": nodo["x"],
-                "tipo": "paciente",
-                "nombre": f"Paciente {i+1}",
-                "node_id": n,   
-            }
+
+def _asignar_nodos_cercanos(G, df):
+    """Ancla al nodo vial mas cercano las filas que aun no tienen node_id."""
+    if "node_id" not in df.columns:
+        df["node_id"] = pd.NA
+
+    faltantes = df["node_id"].isna()
+    if not faltantes.any():
+        return df
+
+    ids = list(G.nodes())
+    xs = np.array([G.nodes[n]["x"] for n in ids])
+    ys = np.array([G.nodes[n]["y"] for n in ids])
+
+    def mas_cercano(lat, lon):
+        d2 = (xs - lon) ** 2 + (ys - lat) ** 2
+        return ids[int(d2.argmin())]
+
+    df.loc[faltantes, "node_id"] = [
+        mas_cercano(lat, lon)
+        for lat, lon in zip(df.loc[faltantes, "lat"], df.loc[faltantes, "lon"])
+    ]
+    return df
+
+
+def cargar_y_procesar_datos(lugar):
+    """Devuelve (grafo, DataFrame de nodos de interes) listos para rutear."""
+    rng = random.Random(SEED)
+
+    G = _construir_grafo(lugar)
+    registros = _descargar_pois(lugar) + _generar_moviles(G, rng)
+
+    df = pd.DataFrame(registros)
+    df = _asignar_nodos_cercanos(G, df)
+    df["node_id"] = df["node_id"].astype("int64")
+
+    # Los nombres alimentan los selectores, asi que deben ser unicos.
+    duplicados = df["nombre"].duplicated(keep=False)
+    if duplicados.any():
+        df.loc[duplicados, "nombre"] = (
+            df.loc[duplicados, "nombre"]
+            + " #"
+            + (df.loc[duplicados].groupby("nombre").cumcount() + 1).astype(str)
         )
 
-    print("🚑 Generando 40 ambulancias...")
-    for j, n in enumerate(random.sample(posibles, min(40, len(posibles)))):
-        nodo = G.nodes[n]
-        nodes.append(
-            {
-                "lat": nodo["y"],
-                "lon": nodo["x"],
-                "tipo": "ambulancia",
-                "nombre": f"Ambulancia {j+1}",
-                "node_id": n,  
-            }
+    _validar_datos(G, df)
+    return G, df
+
+
+def _firma_cache():
+    """Parametros que determinan si un cache sigue representando la app actual."""
+    return {
+        "version": CACHE_VERSION,
+        "lugar": PLACE_NAME,
+        "poi_tags": POI_TAGS,
+        "pacientes": N_PACIENTES,
+        "ambulancias": N_AMBULANCIAS,
+        "seed": SEED,
+        "network_type": "drive",
+        "strong_component": True,
+    }
+
+
+def _validar_datos(G, df):
+    requeridas = {"entity_id", "lat", "lon", "tipo", "nombre", "node_id"}
+    if G.number_of_nodes() == 0 or not nx.is_strongly_connected(G):
+        raise ValueError(
+            "La red vial debe ser un grafo dirigido fuertemente conectado."
         )
-
-    nodos_df = pd.DataFrame(nodes)
-
-    if "node_id" not in nodos_df.columns:
-        nodos_df["node_id"] = pd.NA
-
-    mask_missing = nodos_df["node_id"].isna()
-
-    if mask_missing.any():
-        print("📍 Calculando nodos más cercanos para hospitales/clínicas (sin SciPy)...")
-
-        node_ids_list = list(G.nodes())
-        xs = np.array([G.nodes[n]["x"] for n in node_ids_list])  
-        ys = np.array([G.nodes[n]["y"] for n in node_ids_list])  
-
-        def nearest_node(lat, lon):
-            d2 = (xs - lon) ** 2 + (ys - lat) ** 2
-            idx = int(d2.argmin())
-            return node_ids_list[idx]
-
-        lat_series = nodos_df.loc[mask_missing, "lat"]
-        lon_series = nodos_df.loc[mask_missing, "lon"]
-
-        nodos_df.loc[mask_missing, "node_id"] = [
-            nearest_node(lat, lon) for lat, lon in zip(lat_series, lon_series)
-        ]
-
-    for _, row in nodos_df.iterrows():
-        nid = row["node_id"]
-        try:
-            nid = int(nid)
-        except Exception:
-            pass
-
-        G.nodes[nid].update(
-            {
-                "custom_poi": True,
-                "tipo": row["tipo"],
-                "nombre": row["nombre"],
-            }
+    if df.empty or not requeridas.issubset(df.columns):
+        raise ValueError(
+            "El conjunto de entidades esta vacio o tiene un esquema invalido."
         )
+    if df["entity_id"].isna().any() or df["entity_id"].duplicated().any():
+        raise ValueError("Cada entidad debe tener un identificador unico.")
+    if df[["lat", "lon", "tipo", "nombre", "node_id"]].isna().any().any():
+        raise ValueError("Las entidades contienen valores obligatorios vacios.")
+    coordenadas = df[["lat", "lon"]].to_numpy(dtype=float)
+    if not np.isfinite(coordenadas).all():
+        raise ValueError("Las entidades contienen coordenadas no finitas.")
+    if not df["lat"].between(-90, 90).all() or not df["lon"].between(-180, 180).all():
+        raise ValueError("Las entidades contienen coordenadas fuera de rango.")
+    if not set(df["tipo"]).issubset(COLORES):
+        raise ValueError("Las entidades contienen tipos desconocidos.")
+    if not set(map(int, df["node_id"])).issubset(G.nodes):
+        raise ValueError("Hay entidades ancladas fuera de la red vial.")
+    for _, _, datos in G.edges(data=True):
+        tiempo_viaje = datos.get("travel_time")
+        if (
+            tiempo_viaje is None
+            or not math.isfinite(float(tiempo_viaje))
+            or float(tiempo_viaje) <= 0
+        ):
+            raise ValueError("La red contiene aristas sin tiempo de viaje valido.")
 
-    print("✓ Datos procesados correctamente\n")
-    return G, nodos_df
 
-def calcular_ruta_optima(G, src_node, dst_node):
+def _sha256(ruta):
+    resumen = hashlib.sha256()
+    with ruta.open("rb") as archivo:
+        for bloque in iter(lambda: archivo.read(1024 * 1024), b""):
+            resumen.update(bloque)
+    return resumen.hexdigest()
+
+
+def _cargar_cache():
+    archivos = (CACHE_GRAPH_FILE, CACHE_ENTITIES_FILE, CACHE_META_FILE)
+    if not all(archivo.exists() for archivo in archivos):
+        return None
     try:
-        ruta = nx.dijkstra_path(G, src_node, dst_node, weight="travel_time")
-        tiempo = nx.path_weight(G, ruta, weight="travel_time")
-        return ruta, tiempo
+        with CACHE_META_FILE.open("r", encoding="utf-8") as archivo:
+            metadata = json.load(archivo)
+        if metadata.get("signature") != _firma_cache():
+            return None
+        creado = float(metadata["created_at"])
+        if time.time() - creado > CACHE_TTL_SECONDS:
+            LOGGER.info("El cache geografico expiro y se actualizara.")
+            return None
+        checksums = metadata.get("checksums", {})
+        if checksums != {
+            CACHE_GRAPH_FILE.name: _sha256(CACHE_GRAPH_FILE),
+            CACHE_ENTITIES_FILE.name: _sha256(CACHE_ENTITIES_FILE),
+        }:
+            raise ValueError(
+                "Los archivos del cache no superaron la verificacion SHA-256."
+            )
+        G = ox.io.load_graphml(CACHE_GRAPH_FILE)
+        df = pd.read_json(CACHE_ENTITIES_FILE, orient="table")
+        df["node_id"] = df["node_id"].astype("int64")
+        _validar_datos(G, df)
+        return G, df
+    except Exception:
+        LOGGER.warning(
+            "El cache geografico no es valido; se regenerara.", exc_info=True
+        )
+        return None
+
+
+def _temporal_para(destino):
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    descriptor, nombre = tempfile.mkstemp(
+        prefix=f".{destino.name}.", suffix=".tmp", dir=CACHE_DIR
+    )
+    os.close(descriptor)
+    return Path(nombre)
+
+
+def _guardar_cache(G, df):
+    """Guarda GraphML/JSON de forma atomica, sin deserializacion ejecutable."""
+    temporales = {
+        CACHE_GRAPH_FILE: _temporal_para(CACHE_GRAPH_FILE),
+        CACHE_ENTITIES_FILE: _temporal_para(CACHE_ENTITIES_FILE),
+        CACHE_META_FILE: _temporal_para(CACHE_META_FILE),
+    }
+    try:
+        ox.io.save_graphml(G, temporales[CACHE_GRAPH_FILE])
+        df.to_json(
+            temporales[CACHE_ENTITIES_FILE],
+            orient="table",
+            force_ascii=False,
+            index=False,
+        )
+        with temporales[CACHE_META_FILE].open("w", encoding="utf-8") as archivo:
+            json.dump(
+                {
+                    "signature": _firma_cache(),
+                    "created_at": time.time(),
+                    "checksums": {
+                        CACHE_GRAPH_FILE.name: _sha256(temporales[CACHE_GRAPH_FILE]),
+                        CACHE_ENTITIES_FILE.name: _sha256(
+                            temporales[CACHE_ENTITIES_FILE]
+                        ),
+                    },
+                },
+                archivo,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        # Los datos se reemplazan primero y el metadata actua como confirmacion.
+        os.replace(temporales[CACHE_GRAPH_FILE], CACHE_GRAPH_FILE)
+        os.replace(temporales[CACHE_ENTITIES_FILE], CACHE_ENTITIES_FILE)
+        os.replace(temporales[CACHE_META_FILE], CACHE_META_FILE)
+    finally:
+        for temporal in temporales.values():
+            if temporal.exists():
+                try:
+                    temporal.unlink()
+                except OSError:
+                    LOGGER.warning("No se pudo retirar el temporal %s.", temporal)
+
+
+@st.cache_resource(show_spinner=False, ttl=CACHE_TTL_SECONDS)
+def cargar_datos():
+    """Carga un cache seguro y vigente; si no existe, consulta OpenStreetMap."""
+    guardado = _cargar_cache()
+    if guardado is not None:
+        return guardado
+
+    G, df = cargar_y_procesar_datos(PLACE_NAME)
+    try:
+        _guardar_cache(G, df)
+    except Exception:
+        LOGGER.warning("No se pudo guardar el cache geografico.", exc_info=True)
+    return G, df
+
+
+# --------------------------------------------------------------------------- #
+# ALGORITMOS DE RUTEO
+# --------------------------------------------------------------------------- #
+
+
+def calcular_ruta_optima(G, origen, destino):
+    """Dijkstra sobre travel_time. Devuelve (lista de nodos, segundos)."""
+    try:
+        ruta = nx.dijkstra_path(G, origen, destino, weight="travel_time")
+        return ruta, nx.path_weight(G, ruta, weight="travel_time")
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         return None, None
 
 
-def two_opt(route, G):
-    if len(route) <= 2:
-        return route
+def _matriz_tiempos(G, nodos):
+    """Matriz de tiempos entre todos los puntos, con un Dijkstra por origen."""
+    n = len(nodos)
+    matriz = [[math.inf] * n for _ in range(n)]
+    for i, origen in enumerate(nodos):
+        try:
+            distancias = nx.single_source_dijkstra_path_length(
+                G, origen, weight="travel_time"
+            )
+        except nx.NodeNotFound:
+            continue
+        for j, destino in enumerate(nodos):
+            matriz[i][j] = 0.0 if i == j else distancias.get(destino, math.inf)
+    return matriz
 
-    best = route[:]
-    improved = True
 
-    try:
-        old_time = sum(
-            nx.dijkstra_path_length(G, a, b, weight="travel_time")
-            for a, b in zip(best[:-1], best[1:])
-        )
-    except (nx.NetworkXNoPath, nx.NodeNotFound):
-        return route
+def _costo(orden, matriz):
+    return sum(matriz[a][b] for a, b in pairwise(orden))
 
-    while improved:
-        improved = False
-        for i in range(1, len(best) - 1):
-            for k in range(i + 1, len(best)):
-                new_route = best[:i] + best[i: k + 1][::-1] + best[k + 1:]
 
-                try:
-                    new_time = sum(
-                        nx.dijkstra_path_length(G, a, b, weight="travel_time")
-                        for a, b in zip(new_route[:-1], new_route[1:])
-                    )
-                    if new_time < old_time:
-                        best = new_route
-                        old_time = new_time
-                        improved = True
-                        break
-                except (nx.NetworkXNoPath, nx.NodeNotFound):
-                    continue
-            if improved:
-                break
+def _vecino_mas_cercano(matriz):
+    """Vecino cercano que evita entrar antes de tiempo en un componente sin salida."""
+    pendientes = set(range(1, len(matriz)))
+    orden = [0]
+    actual = 0
 
-    return best
+    while pendientes:
+        seguros = [
+            j
+            for j in pendientes
+            if math.isfinite(matriz[actual][j])
+            and all(math.isfinite(matriz[j][otro]) for otro in pendientes if otro != j)
+        ]
+        if not seguros:
+            return orden, sorted(pendientes)
+        siguiente = min(seguros, key=lambda j: matriz[actual][j])
+        orden.append(siguiente)
+        pendientes.discard(siguiente)
+        actual = siguiente
+
+    return orden, []
+
+
+def _dos_opt(orden, matriz):
+    """Mejora la ruta invirtiendo segmentos mientras se reduzca el costo."""
+    if len(orden) <= 3:
+        return orden
+
+    mejor = orden[:]
+    mejor_costo = _costo(mejor, matriz)
+    hubo_mejora = True
+
+    while hubo_mejora:
+        hubo_mejora = False
+        for i in range(1, len(mejor) - 1):
+            for k in range(i + 1, len(mejor)):
+                candidato = mejor[:i] + mejor[i : k + 1][::-1] + mejor[k + 1 :]
+                costo = _costo(candidato, matriz)
+                if costo < mejor_costo - 1e-9:
+                    mejor, mejor_costo = candidato, costo
+                    hubo_mejora = True
+    return mejor
 
 
 def calcular_ruta_tsp(G, nodo_origen, nodos_destino):
-    pendientes = list(nodos_destino)
-    orden = [nodo_origen]
-    actual = nodo_origen
+    """TSP abierto atomico: visita todos los destinos o devuelve un error."""
+    # Los indices representan entidades, no nodos. Dos entidades ubicadas sobre
+    # el mismo nodo siguen siendo dos paradas validas con costo cero entre ellas.
+    puntos = [nodo_origen] + list(nodos_destino)
+    if len(puntos) < 2:
+        return {
+            "ruta": [],
+            "tiempo": 0.0,
+            "orden_nodos": [nodo_origen],
+            "orden_indices": [0],
+            "no_visitados": [],
+            "error": None,
+        }
 
-    while pendientes:
-        siguiente, tiempo_min = None, float("inf")
-        for dest in pendientes:
-            try:
-                t = nx.dijkstra_path_length(G, actual, dest, weight="travel_time")
-                if t < tiempo_min:
-                    siguiente, tiempo_min = dest, t
-            except nx.NetworkXNoPath:
-                continue
+    matriz = _matriz_tiempos(G, puntos)
+    problematicos = {j for j in range(1, len(puntos)) if math.isinf(matriz[0][j])}
+    for i in range(1, len(puntos)):
+        for j in range(i + 1, len(puntos)):
+            if math.isinf(matriz[i][j]) and math.isinf(matriz[j][i]):
+                problematicos.update((i, j))
+    if problematicos:
+        return {
+            "ruta": [],
+            "tiempo": 0.0,
+            "orden_nodos": [],
+            "orden_indices": [],
+            "no_visitados": sorted(problematicos),
+            "error": "Los destinos no se pueden conectar en un unico recorrido dirigido.",
+        }
 
-        if siguiente is None:
-            break
+    orden_inicial, pendientes = _vecino_mas_cercano(matriz)
+    if pendientes:
+        return {
+            "ruta": [],
+            "tiempo": 0.0,
+            "orden_nodos": [],
+            "orden_indices": [],
+            "no_visitados": pendientes,
+            "error": "No se encontro un orden que visite todos los destinos.",
+        }
 
-        orden.append(siguiente)
-        pendientes.remove(siguiente)
-        actual = siguiente
+    orden_idx = _dos_opt(orden_inicial, matriz)
+    orden = [puntos[i] for i in orden_idx]
 
-    if len(orden) <= 2:
-        orden_opt = orden
-    else:
-        orden_opt = two_opt(orden, G)
+    ruta_completa, tiempo_total = [], 0.0
+    for i in range(len(orden) - 1):
+        tramo, tiempo = calcular_ruta_optima(G, orden[i], orden[i + 1])
+        if tramo is None:
+            return {
+                "ruta": [],
+                "tiempo": 0.0,
+                "orden_nodos": [],
+                "orden_indices": [],
+                "no_visitados": orden_idx[i + 1 :],
+                "error": "La red cambio durante el calculo y la ruta quedo incompleta.",
+            }
+        ruta_completa.extend(tramo if not ruta_completa else tramo[1:])
+        tiempo_total += tiempo
 
-    ruta_completa, tiempo_total = [], 0
-    for i in range(len(orden_opt) - 1):
-        seg, t = calcular_ruta_optima(G, orden_opt[i], orden_opt[i + 1])
-        if seg:
-            ruta_completa.extend(seg if i == 0 else seg[1:])
-            tiempo_total += t
-
-    return ruta_completa, tiempo_total, orden_opt
-
-
-def _inject_fonts(m):
-    css = """
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700;900&display=swap');
-      html, body, .leaflet-container, .leaflet-popup-content, .leaflet-control {
-        font-family: 'Merriweather', Georgia, serif !important;
-      }
-      .leaflet-popup-content {
-        font-size: 14px;
-        line-height: 1.7;
-      }
-      .leaflet-popup-content-wrapper {
-        border-radius: 8px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-      }
-      .leaflet-control-layers-expanded {
-        font-size: 13px;
-        border-radius: 8px;
-      }
-    </style>
-    """
-    m.get_root().html.add_child(folium.Element(css))
+    return {
+        "ruta": ruta_completa,
+        "tiempo": tiempo_total,
+        "orden_nodos": orden,
+        "orden_indices": orden_idx,
+        "no_visitados": [],
+        "error": None,
+    }
 
 
-def generar_mapa_con_ruta(
-    G, df, ruta=None, nombre_html="mapa_emergencia.html", ruta_ordenada=None
-):
-    center = [df["lat"].mean(), df["lon"].mean()]
-    m = folium.Map(location=center, zoom_start=13, tiles=None, control_scale=True)
+# --------------------------------------------------------------------------- #
+# MAPA
+# --------------------------------------------------------------------------- #
 
-    folium.TileLayer("cartodbdark_matter", name="Base oscura", control=False).add_to(m)
 
-    edges = ox.graph_to_gdfs(G, nodes=False)
-    folium.GeoJson(
-        edges,
-        style_function=lambda _: {"color": "#334155", "weight": 2.2, "opacity": 0.7},
-        overlay=True,
-        control=False,
-    ).add_to(m)
+def geojson_ruta(G, ruta):
+    """Traza de la ruta calculada, unida en una sola linea y simplificada."""
+    if not ruta or len(ruta) < 2:
+        return None
+    tramos = ox.routing.route_to_gdf(G, ruta, weight="travel_time")
 
-    folium.GeoJson(
-        edges,
-        name="Red vial",
-        style_function=lambda _: {"color": "#475569", "weight": 1.0, "opacity": 0.9},
-        overlay=True,
-        control=True,
-    ).add_to(m)
+    limpias = shapely.set_precision(
+        shapely.simplify(np.asarray(tramos.geometry.values), SIMPLIFICAR_GRADOS),
+        PRECISION_GRADOS,
+    )
+    lineas = [g for g in limpias if g is not None and not g.is_empty]
+    if not lineas:
+        return None
 
-    if ruta and len(ruta) > 1:
-        try:
-            ruta_gdf = ox.routing.route_to_gdf(G, ruta)
-            folium.GeoJson(
-                ruta_gdf,
-                name="Ruta de Emergencia",
-                style_function=lambda _: {
-                    "color": "#dc2626",
-                    "weight": 6,
-                    "opacity": 0.95,
-                    "lineJoin": "round",
-                },
-                tooltip="Ruta calculada",
-            ).add_to(m)
-        except Exception as e:
-            print(f"⚠ Error al dibujar ruta: {e}")
+    unida = linemerge(shapely.MultiLineString(lineas)) if len(lineas) > 1 else lineas[0]
+    return json.dumps(
+        {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {},
+                    "geometry": shapely.geometry.mapping(unida),
+                }
+            ],
+        },
+        separators=(",", ":"),
+    )
 
-    paradas = {}
-    if ruta_ordenada:
-        for i, nid in enumerate(ruta_ordenada):
-            paradas[nid] = "ORIGEN" if i == 0 else f"PARADA {i}"
 
-    capa_hosp = folium.FeatureGroup(name="Hospitales", show=True)
-    capa_clin = folium.FeatureGroup(name="Clínicas", show=True)
-    capa_pac = folium.FeatureGroup(name="Pacientes", show=True)
-    capa_amb = folium.FeatureGroup(name="Ambulancias", show=True)
+_CSS_MAPA = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700;900&display=swap');
 
-    cluster_hosp = MarkerCluster(name="Cluster Hospitales")
-    cluster_clin = MarkerCluster(name="Cluster Clínicas")
+.leaflet-container, .leaflet-control, .leaflet-popup-content {
+  font-family: 'Merriweather', Georgia, serif !important;
+}
+.leaflet-container { background: LIENZO; }
+.leaflet-div-icon { background: transparent; border: none; }
 
-    for _, row in df.iterrows():
-        tipo = row["tipo"]
-        color = COLORES.get(tipo, "gray")
+/* --- Marcadores --- */
+.mk-inst {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 7px; color: #fff; font-weight: 700; line-height: 1;
+  box-shadow: 0 1px 3px rgba(27,36,38,.28);
+}
+.mk-parada {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: #fff; border: 2px solid RUTA;
+  color: RUTA; font-weight: 700; line-height: 1;
+  box-shadow: 0 1px 4px rgba(27,36,38,.25);
+}
+.mk-origen {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: AMBULANCIA; border: 2px solid #fff;
+  color: #fff; font-weight: 700; line-height: 1;
+  box-shadow: 0 1px 4px rgba(27,36,38,.3);
+}
 
-        es_parada = bool(row.get("es_parada", False)) and row["node_id"] in paradas
-        info_parada = paradas[row["node_id"]] if es_parada else ""
+/* --- Popups --- */
+.leaflet-popup-content-wrapper {
+  background: #fff; color: TEXT; border: 1px solid LINE;
+  border-radius: 8px; box-shadow: 0 4px 14px rgba(27,36,38,.12); padding: 1px;
+}
+.leaflet-popup-content { margin: 11px 14px; font-size: 12.5px; line-height: 1.5; }
+.leaflet-popup-tip { background: #fff; box-shadow: none; }
+.leaflet-popup-close-button { color: TEXT3 !important; }
+.pop-tipo {
+  font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: TEXT3; display: block; margin-bottom: 3px;
+}
+.pop-nombre { font-size: 13px; font-weight: 700; color: TEXT; }
+.pop-rol {
+  display: inline-block; margin-top: 7px; padding: 2px 7px; border-radius: 4px;
+  background: rgba(RUTARGB,.1); color: RUTA;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+}
 
-        popup_text = (
-            f"<b style='color:#dc2626; font-size:14px; text-transform:uppercase;'>{info_parada}</b><br>"
-            if info_parada
-            else ""
-        )
-        popup_text += f"<b>{row['nombre']}</b><br><small style='text-transform:uppercase;'>({row['tipo']})</small>"
-        popup = folium.Popup(popup_text, max_width=280)
+/* --- Controles --- */
+.leaflet-bar, .leaflet-control-layers {
+  background: #fff !important; border: 1px solid LINE !important;
+  border-radius: 8px !important; box-shadow: 0 1px 3px rgba(27,36,38,.08) !important;
+  overflow: hidden;
+}
+.leaflet-bar a, .leaflet-bar a:hover {
+  background: #fff; color: TEXT2; border-bottom: 1px solid LINESOFT;
+  width: 30px; height: 30px; line-height: 30px;
+}
+.leaflet-bar a:hover { background: SURFACE2; color: TEXT; }
+.leaflet-bar a:last-child { border-bottom: none; }
 
-        if tipo == "hospital":
-            if es_parada:
-                folium.Marker(
-                    [row["lat"], row["lon"]],
-                    popup=popup,
-                    icon=folium.Icon(color="red", icon="star", prefix="fa"),
-                    tooltip=info_parada,
-                ).add_to(capa_hosp)
-            else:
-                folium.Marker(
-                    [row["lat"], row["lon"]],
-                    popup=popup,
-                    icon=folium.Icon(color="red", icon="plus", prefix="fa"),
-                ).add_to(cluster_hosp)
-        elif tipo == "clinic":
-            if es_parada:
-                folium.Marker(
-                    [row["lat"], row["lon"]],
-                    popup=popup,
-                    icon=folium.Icon(color="purple", icon="star", prefix="fa"),
-                    tooltip=info_parada,
-                ).add_to(capa_clin)
-            else:
-                folium.Marker(
-                    [row["lat"], row["lon"]],
-                    popup=popup,
-                    icon=folium.Icon(color="purple", icon="plus", prefix="fa"),
-                ).add_to(cluster_clin)
-        elif tipo == "paciente":
-            if es_parada:
-                folium.Marker(
-                    [row["lat"], row["lon"]],
-                    popup=popup,
-                    icon=folium.Icon(
-                        color="orange", icon="star", prefix="fa", icon_color="white"
-                    ),
-                    tooltip=info_parada,
-                ).add_to(capa_pac)
-            else:
-                folium.CircleMarker(
-                    [row["lat"], row["lon"]],
-                    radius=4,
-                    color=color,
-                    fill=True,
-                    fill_color=color,
-                    fill_opacity=0.7,
-                    weight=1,
-                    popup=popup,
-                ).add_to(capa_pac)
-        elif tipo == "ambulancia":
-            if es_parada:
-                folium.Marker(
-                    [row["lat"], row["lon"]],
-                    popup=popup,
-                    icon=folium.Icon(
-                        color="green",
-                        icon="flag-checkered",
-                        prefix="fa",
-                        icon_color="white",
-                    ),
-                    tooltip=info_parada,
-                ).add_to(capa_amb)
-            else:
-                folium.CircleMarker(
-                    [row["lat"], row["lon"]],
-                    radius=6,
-                    color=color,
-                    fill=True,
-                    fill_color=color,
-                    fill_opacity=0.85,
-                    weight=1,
-                    popup=popup,
-                ).add_to(capa_amb)
+.leaflet-control-layers-expanded { padding: 11px 13px 11px 11px; }
+.leaflet-control-layers-list::before {
+  content: 'Capas'; display: block;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: TEXT3; margin: 0 0 8px 2px;
+}
+.leaflet-control-layers-list label {
+  display: block; margin: 4px 0; cursor: pointer;
+  font-size: 12px; color: TEXT;
+}
+.leaflet-control-layers-list label > div { display: flex; align-items: center; }
+.leaflet-control-layers-selector { accent-color: ACCENT; margin: 0 8px 0 0; }
+.cap-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  display: inline-block; margin-right: 7px; flex: none;
+}
+.leaflet-control-layers-separator { display: none; }
 
-    cluster_hosp.add_to(capa_hosp)
-    cluster_clin.add_to(capa_clin)
+.leaflet-control-attribution {
+  background: rgba(255,255,255,.86) !important; color: TEXT3 !important;
+  font-size: 9.5px !important; border-radius: 5px 0 0 0;
+}
+.leaflet-control-attribution a { color: TEXT2 !important; }
+.leaflet-control-scale-line {
+  background: rgba(255,255,255,.8); border: 1px solid LINE; border-top: none;
+  color: TEXT2; font-size: 9.5px;
+}
 
-    for capa in [capa_hosp, capa_clin, capa_pac, capa_amb]:
+/* --- Leyenda --- */
+.hn-leyenda {
+  position: absolute; bottom: 24px; right: 12px; z-index: 800;
+  background: #fff; border: 1px solid LINE; border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(27,36,38,.08);
+  padding: 11px 14px; color: TEXT; font-size: 12px; line-height: 1.75;
+}
+.hn-leyenda b {
+  display: block; font-size: 9.5px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: TEXT3; margin-bottom: 7px;
+}
+.hn-leyenda i {
+  width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block; margin-right: 9px; vertical-align: middle;
+}
+.hn-leyenda .barra {
+  width: 16px; height: 3px; border-radius: 2px; background: RUTA;
+  display: inline-block; margin-right: 9px; vertical-align: middle;
+}
+@media (max-width: 640px) { .hn-leyenda { display: none; } }
+</style>
+"""
+
+
+def _rgb(hexadecimal):
+    """'#RRGGBB' -> 'r,g,b', para componer rgba() a partir de la paleta."""
+    h = hexadecimal.lstrip("#")
+    return ",".join(str(int(h[i : i + 2], 16)) for i in (0, 2, 4))
+
+
+def _css_mapa():
+    """Resuelve los tokens de color dentro del CSS del mapa."""
+    reemplazos = {
+        "LINESOFT": C["line_soft"],
+        "LINE": C["line"],
+        "LIENZO": C["lienzo"],
+        "SURFACE2": C["surface_2"],
+        "TEXT3": C["text_3"],
+        "TEXT2": C["text_2"],
+        "TEXT": C["text"],
+        "ACCENT": C["accent"],
+        "AMBULANCIA": C["ambulancia"],
+        "RUTARGB": _rgb(C["ruta"]),
+        "RUTA": C["ruta"],
+    }
+    css = _CSS_MAPA
+    for clave, valor in reemplazos.items():
+        css = css.replace(clave, valor)
+    return css
+
+
+def _icono(clase, contenido, tam, fuente, extra=""):
+    return folium.DivIcon(
+        icon_size=(tam, tam),
+        icon_anchor=(tam // 2, tam // 2),
+        popup_anchor=(0, -tam // 2 - 2),
+        html=(
+            f'<div class="{clase}" style="width:{tam}px;height:{tam}px;'
+            f'font-size:{fuente}px;{extra}">{contenido}</div>'
+        ),
+    )
+
+
+def _popup(nombre, tipo, rol=""):
+    nombre_seguro = html_lib.escape(str(nombre))
+    tipo_seguro = html_lib.escape(str(ETIQUETAS.get(tipo, tipo)))
+    rol_seguro = html_lib.escape(str(rol))
+    marca = f'<span class="pop-rol">{rol_seguro}</span>' if rol else ""
+    return folium.Popup(
+        f'<span class="pop-tipo">{tipo_seguro}</span>'
+        f'<span class="pop-nombre">{nombre_seguro}</span>{marca}',
+        max_width=250,
+    )
+
+
+def _leyenda():
+    filas = "".join(
+        f'<div><i style="background:{COLORES[t]}"></i>{ETIQUETAS[t]}</div>'
+        for t in ("hospital", "clinic", "paciente", "ambulancia")
+    )
+    return (
+        f'<div class="hn-leyenda"><b>Leyenda</b>{filas}'
+        f'<div><span class="barra"></span>Ruta de emergencia</div></div>'
+    )
+
+
+def _nombre_capa(tipo):
+    """Etiqueta del control de capas. Leaflet la inserta con innerHTML, asi que
+    admite el punto de color como marcado."""
+    return f'<i class="cap-dot" style="background:{COLORES[tipo]}"></i>{PLURALES[tipo]}'
+
+
+def _capas_entidades(m, df, paradas):
+    """Las cuatro capas conmutables de entidades."""
+    capas = {t: folium.FeatureGroup(name=_nombre_capa(t), show=True) for t in COLORES}
+
+    for fila in df.itertuples():
+        tipo = fila.tipo
+        capa = capas.get(tipo)
+        if capa is None or fila.entity_id in paradas:
+            continue  # Las paradas se dibujan sobre la capa de la ruta.
+
+        coords = (fila.lat, fila.lon)
+        popup = _popup(fila.nombre, tipo)
+
+        if tipo in ("hospital", "clinic"):
+            folium.Marker(
+                coords,
+                popup=popup,
+                tooltip=html_lib.escape(str(fila.nombre)),
+                icon=_icono("mk-inst", "+", 21, 14, f"background:{COLORES[tipo]};"),
+            ).add_to(capa)
+        else:
+            grande = tipo == "ambulancia"
+            folium.CircleMarker(
+                coords,
+                radius=4.2 if grande else 3.4,
+                color=COLORES[tipo],
+                weight=0,
+                fill=True,
+                fill_color=COLORES[tipo],
+                fill_opacity=0.95 if grande else 0.8,
+                popup=popup,
+                tooltip=html_lib.escape(str(fila.nombre)),
+            ).add_to(capa)
+
+    for capa in capas.values():
         capa.add_to(m)
 
-    Fullscreen(position="topleft").add_to(m)
-    LocateControl(position="topleft").add_to(m)
-    folium.LayerControl(collapsed=False).add_to(m)
 
-    legend = f"""
-    <div style="position: fixed; bottom: 20px; right: 20px; z-index: 9999;
-      background: rgba(15,23,42,0.96); border-radius: 8px;
-      padding: 16px 20px; font-size: 12px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4); backdrop-filter: blur(10px);
-      border: 1px solid rgba(148, 163, 184, 0.1);
-      color: #e5e7eb; font-family: 'Merriweather', Georgia, serif;">
-      <b style="font-size:14px; margin-bottom:12px; display:block; color:#f1f5f9; text-transform:uppercase; letter-spacing:1px;">Leyenda</b>
-      <div style="line-height: 2;">
-        <i style="background:{COLORES['hospital']}; width:12px; height:12px; border-radius:50%; display:inline-block; margin-right:10px;"></i> Hospital<br>
-        <i style="background:{COLORES['clinic']}; width:12px; height:12px; border-radius:50%; display:inline-block; margin-right:10px;"></i> Clínica<br>
-        <i style="background:{COLORES['paciente']}; width:12px; height:12px; border-radius:50%; display:inline-block; margin-right:10px;"></i> Paciente<br>
-        <i style="background:{COLORES['ambulancia']}; width:12px; height:12px; border-radius:50%; display:inline-block; margin-right:10px;"></i> Ambulancia
-      </div>
-    </div>
-    """
-    m.get_root().html.add_child(folium.Element(legend))
+def _capa_ruta(m, G, ruta, paradas, indice):
+    """Traza de la ruta con el origen y las paradas numeradas encima."""
+    grupo = folium.FeatureGroup(name="Ruta de emergencia", show=True, control=False)
 
-    _inject_fonts(m)
-    m.save(nombre_html)
-    return os.path.abspath(nombre_html)
+    traza = geojson_ruta(G, ruta)
+    if traza:
+        folium.GeoJson(
+            traza,
+            style_function=lambda _: {
+                "color": C["ruta"],
+                "weight": 2.6,
+                "opacity": 1,
+                "lineCap": "round",
+                "lineJoin": "round",
+            },
+        ).add_to(grupo)
 
-@st.cache_resource
-def load_data_cached():
-    return cargar_y_procesar_datos(PLACE_NAME)
+    repeticiones = {}
+    for entity_id in paradas:
+        nid = indice[entity_id][0]
+        repeticiones[nid] = repeticiones.get(nid, 0) + 1
+    vistos = {}
+
+    for i, entity_id in enumerate(paradas):
+        nid, nombre, tipo, lat, lon = indice[entity_id]
+        total_nodo = repeticiones[nid]
+        posicion = vistos.get(nid, 0)
+        vistos[nid] = posicion + 1
+        if total_nodo > 1:
+            angulo = 2 * math.pi * posicion / total_nodo
+            lat += 0.000025 * math.cos(angulo)
+            lon += 0.000025 * math.sin(angulo) / max(math.cos(math.radians(lat)), 0.2)
+        if i == 0:
+            icono, rol = _icono("mk-origen", "A", 24, 11), "Origen"
+        else:
+            icono, rol = _icono("mk-parada", str(i), 23, 11), f"Parada {i}"
+        folium.Marker(
+            (lat, lon), icon=icono, popup=_popup(nombre, tipo, rol), tooltip=rol
+        ).add_to(grupo)
+
+    grupo.add_to(m)
 
 
-def init_session_state():
-    if "map_state" not in st.session_state:
-        st.session_state["map_state"] = {
-            "tipo_ruta": "base",
-            "ruta": None,
-            "tiempo": None,
-            "orden": None,
-            "nombres_paradas": None,
+def generar_mapa(G, df, ruta=None, paradas=None):
+    """Renderiza el mapa completo y devuelve su HTML (sin tocar el disco)."""
+    m = folium.Map(
+        location=[df["lat"].mean(), df["lon"].mean()],
+        tiles=None,
+        control_scale=True,
+        prefer_canvas=True,  # Cientos de puntos en canvas, no en nodos SVG.
+        zoom_control=True,
+    )
+
+    # control=False: el tile base no debe aparecer como opcion en CAPAS.
+    folium.TileLayer("cartodbpositron", name="Base", control=False).add_to(m)
+
+    paradas = list(paradas or [])
+    ids_parada = set(paradas)
+
+    _capas_entidades(m, df, ids_parada)
+
+    if ruta and paradas:
+        indice = {
+            f.entity_id: (f.node_id, f.nombre, f.tipo, f.lat, f.lon)
+            for f in df.itertuples()
+            if f.entity_id in ids_parada
         }
-    if "map_html" not in st.session_state:
-        st.session_state["map_html"] = None
-    if "show_warning" not in st.session_state:
-        st.session_state["show_warning"] = False
-    if "warning_message" not in st.session_state:
-        st.session_state["warning_message"] = ""
+        _capa_ruta(m, G, ruta, paradas, indice)
+
+    # Encuadra la extension real de los puntos, con un margen pequeno.
+    m.fit_bounds(
+        [[df["lat"].min(), df["lon"].min()], [df["lat"].max(), df["lon"].max()]],
+        padding=(18, 18),
+    )
+
+    LocateControl(position="topleft", strings={"title": "Mi ubicación"}).add_to(m)
+    Fullscreen(position="topleft", title="Pantalla completa").add_to(m)
+    folium.LayerControl(collapsed=False, position="topright").add_to(m)
+    m.get_root().html.add_child(folium.Element(_css_mapa() + _leyenda()))
+
+    return m.get_root().render()
 
 
-def apply_custom_css():
+@st.cache_data(show_spinner=False, ttl=CACHE_TTL_SECONDS)
+def mapa_base(_G, _df, clave):
+    """El mapa sin ruta no cambia nunca: se renderiza una sola vez."""
+    return generar_mapa(_G, _df)
+
+
+# --------------------------------------------------------------------------- #
+# SISTEMA DE DISENO (CSS)
+# --------------------------------------------------------------------------- #
+
+_FUENTES = (
+    "@import url('https://fonts.googleapis.com/css2?"
+    "family=Merriweather:wght@300;400;700;900&display=swap');"
+)
+
+_CSS_APP = """
+:root {
+  --nav-h: 58px;
+  --panel-w: 380px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, .stApp, [class*="st-"], button, input, select, textarea, div, span,
+p, h1, h2, h3, h4, h5, h6, li, dt, dd, label, em, b, strong, i {
+  font-family: 'Merriweather', Georgia, serif !important;
+}
+/* Los iconos de Streamlit son ligaduras tipograficas: con la regla de arriba
+   el navegador dibujaria su nombre como texto ("keyboard_double_arrow_left"). */
+[data-testid="stIconMaterial"], [class*="material-symbols"], span[translate="no"] {
+  font-family: 'Material Symbols Rounded', 'Material Symbols Outlined' !important;
+  font-feature-settings: 'liga' 1 !important;
+}
+
+.stApp { background: var(--bg); color: var(--text); }
+::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+header[data-testid="stHeader"], [data-testid="stToolbar"],
+[data-testid="stDecoration"], footer { display: none !important; }
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stExpandSidebarButton"] { display: none !important; }
+/* El encabezado del panel solo contiene el boton de colapsar, que en escritorio
+   esta oculto. Con padding 0 seguia reservando 56px de hueco muerto arriba. */
+[data-testid="stSidebarHeader"] { display: none !important; }
+
+/* La barra superior ocupa el ancho completo: se baja toda la app (panel
+   incluido) para que nada quede tapado debajo de ella. */
+[data-testid="stAppViewContainer"] {
+  padding-top: var(--nav-h);
+  height: 100vh !important;
+  min-height: 100vh !important;
+  overflow: hidden;
+}
+/* Los hijos han de caber DENTRO del hueco que deja la barra. Si conservan
+   height:100% suman 100vh + var(--nav-h): el contenedor queda desbordado y, al
+   enfocar el mapa, el navegador lo desplaza para "revelarlo", escondiendo la
+   cabecera del panel bajo la barra fija y sin forma de recuperarla. */
+[data-testid="stAppViewContainer"] > *,
+section[data-testid="stSidebar"],
+[data-testid="stMain"] {
+  height: calc(100vh - var(--nav-h)) !important;
+  max-height: calc(100vh - var(--nav-h)) !important;
+}
+html, body { overflow: hidden; }
+.stApp .stMainBlockContainer, .stApp .block-container {
+  padding: 0 !important; max-width: 100% !important;
+}
+[data-testid="stMain"] { background: var(--bg); overflow: hidden !important; }
+/* El area principal apila contenedores invisibles (la hoja de estilos y la
+   barra fija) antes del mapa; el gap del flex dejaba una banda blanca de 30 px
+   que ademas empujaba el iframe fuera de pantalla y cortaba la leyenda. */
+[data-testid="stMain"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
+[data-testid="stMain"] [data-testid="stElementContainer"]:has(style) {
+  display: none !important;
+}
+/* El contenedor de la franja tambien se encogia (31 px para 46 px de alto),
+   con lo que el mapa arrancaba demasiado arriba y sobraba blanco al final. */
+[data-testid="stMain"] [data-testid="stElementContainer"]:has(.hn-bar) {
+  height: var(--bar-h) !important;
+  min-height: var(--bar-h) !important;
+  flex: none !important;
+}
+
+/* ------------------------------- Barra superior ------------------------- */
+.stApp .hn-top {
+  position: fixed; inset: 0 0 auto 0; height: var(--nav-h); z-index: 1000001;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 clamp(20px, 7vw, 150px);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.stApp .hn-brand { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.stApp .hn-brand img { width: 34px; height: 34px; object-fit: contain; flex: none; }
+.stApp .hn-word {
+  font-size: 22px !important; font-weight: 900; color: var(--nav-marca);
+  white-space: nowrap; line-height: 1;
+}
+.stApp .hn-rule {
+  width: 1px; height: 22px; background: var(--nav-sep); flex: none;
+}
+.stApp .hn-cifras { display: flex; align-items: center; gap: 18px; }
+.stApp .hn-cifra {
+  display: flex; align-items: baseline; gap: 10px; margin: 0 !important;
+}
+.stApp .hn-cifra dt {
+  font-size: 10px !important; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--nav-label); margin: 0 !important;
+  line-height: 1;
+}
+.stApp .hn-cifra dd {
+  font-size: 15px !important; font-weight: 700; color: var(--nav-valor);
+  margin: 0 !important; line-height: 1;
+}
+
+/* --------------------------------- Panel -------------------------------- */
+section[data-testid="stSidebar"] {
+  background: var(--surface); border-right: 1px solid var(--line);
+  width: var(--panel-w) !important; min-width: var(--panel-w) !important;
+}
+section[data-testid="stSidebar"] > div:first-child { padding: 22px 24px 30px 24px; }
+section[data-testid="stSidebar"] .block-container { padding: 0 !important; }
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
+section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+  padding-bottom: 24px !important;
+}
+/* Medido en el navegador: en los contenedores de Streamlit el margen SUPERIOR
+   de un hijo NO cuenta para la altura de la caja (se escapa), mientras que el
+   padding del contenedor si. Usar margin-top era lo que hacia que el texto se
+   saliera y se montara sobre el widget siguiente. Todo el ritmo vertical del
+   panel se define por tanto con padding del contenedor. */
+section[data-testid="stSidebar"] [data-testid="stElementContainer"] {
+  margin: 0; flex-shrink: 0 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.hn-paso) {
+  padding: 36px 0 15px 0;
+}
+section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.hn-nota) {
+  padding: 15px 0 26px 0;
+}
+section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.hn-algo) {
+  padding: 18px 0 24px 0;
+}
+section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.hn-ficha) {
+  padding-top: 30px;
+}
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"]
+  > [data-testid="stElementContainer"]:last-child { padding-top: 24px; }
+
+.stApp .hn-paso {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 10px !important; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--text-3);
+  margin: 0 !important; line-height: 1;
+}
+.stApp .hn-paso b { color: var(--text-2); font-weight: 700; }
+.stApp .hn-paso i { font-style: normal; color: var(--text-3); }
+.stApp .hn-paso::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"]
+  > [data-testid="stElementContainer"]:first-child { padding-top: 0 !important; }
+
+.stApp .hn-nota {
+  font-size: 11.5px !important; color: var(--text-3); line-height: 1.5 !important;
+  margin: 0 !important; font-weight: 300;
+}
+.stApp .hn-nota b { color: var(--text-2); font-weight: 700; }
+.stApp .hn-algo {
+  font-size: 11px !important; color: var(--text-3); line-height: 1.8 !important;
+  margin: 0 !important; font-weight: 300;
+}
+.stApp .hn-algo b { color: var(--text-2); font-weight: 700; }
+
+/* -------------------------------- Controles ----------------------------- */
+.stApp div[data-baseweb="select"] > div {
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 9px !important; color: var(--text) !important;
+  min-height: 46px; box-shadow: none !important; font-size: 13px !important;
+  padding: 3px 6px !important;
+  transition: border-color .15s ease;
+}
+.stApp div[data-baseweb="select"] > div:hover { border-color: var(--text-3) !important; }
+.stApp div[data-baseweb="select"] > div[aria-expanded="true"],
+.stApp div[data-baseweb="select"] > div:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent) !important;
+}
+.stApp div[data-baseweb="select"] svg { color: var(--text-3) !important; }
+.stApp div[data-baseweb="select"] input { color: var(--text) !important; }
+
+div[data-baseweb="popover"] ul[role="listbox"],
+div[data-baseweb="popover"] div[role="listbox"] {
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 9px !important; padding: 5px !important;
+  box-shadow: 0 6px 20px rgba(27,36,38,.1) !important;
+}
+li[role="option"] {
+  color: var(--text-2) !important; border-radius: 6px !important;
+  font-size: 12.5px !important; padding: 9px 10px !important;
+}
+li[role="option"]:hover, li[role="option"][aria-selected="true"] {
+  background: var(--surface-2) !important; color: var(--text) !important;
+}
+/* Chips de destino: en linea, con hueco entre ellos, no apilados a lo alto. */
+.stApp span[data-baseweb="tag"] {
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  color: var(--text) !important; border-radius: 999px !important;
+  font-size: 11.5px !important; font-weight: 400 !important;
+  height: auto !important; max-width: 100% !important;
+  margin: 3px 4px 3px 0 !important; padding: 4px 3px 4px 9px !important;
+}
+.stApp span[data-baseweb="tag"] span { color: var(--text) !important; }
+.stApp span[data-baseweb="tag"] svg { fill: var(--text-3) !important; }
+.stApp span[data-baseweb="tag"]:hover svg { fill: var(--text) !important; }
+
+.stApp .stButton, .stApp .stButton > button { width: 100%; }
+.stApp .stButton > button {
+  border-radius: 9px !important; font-size: 13px !important; font-weight: 700;
+  padding: 11px 10px !important; min-height: 46px;
+  border: 1px solid transparent; box-shadow: none !important;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.stApp .stButton > button[kind="primary"] {
+  background: var(--accent) !important; color: #fff !important;
+  border-color: var(--accent) !important;
+}
+.stApp .stButton > button[kind="primary"]:hover {
+  background: var(--accent-hover) !important; border-color: var(--accent-hover) !important;
+}
+.stApp .stButton > button[kind="secondary"] {
+  background: var(--surface) !important; color: var(--text) !important;
+  border-color: var(--line) !important;
+}
+.stApp .stButton > button[kind="secondary"]:hover {
+  background: var(--surface-2) !important; border-color: var(--text-3) !important;
+}
+.stApp .stButton > button:disabled, .stApp .stButton > button:disabled:hover {
+  background: var(--surface-2) !important; color: var(--text-3) !important;
+  border-color: var(--line) !important; opacity: 1 !important; cursor: not-allowed;
+}
+.stApp .stButton > button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.stApp [data-testid="stHorizontalBlock"] { gap: 10px !important; }
+
+/* ------------------------------ Ficha de ruta --------------------------- */
+.stApp .hn-ficha {
+  border: 1px solid var(--line); border-radius: 11px;
+  padding: 17px 18px; margin: 0; background: var(--surface);
+}
+.stApp .hn-ficha-tit {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10px !important; font-weight: 700; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--text-2);
+  margin: 0 !important; line-height: 1.3;
+}
+.stApp .hn-ficha-tit::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ambulancia); flex: none;
+}
+.stApp .hn-reloj {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin: 14px 0 0 0;
+}
+.stApp .hn-reloj strong {
+  font-size: 32px !important; font-weight: 900; color: var(--text);
+  line-height: 1; letter-spacing: -.01em;
+}
+.stApp .hn-reloj span {
+  font-size: 11px !important; color: var(--text-3); font-weight: 300;
+}
+.stApp .hn-pares { display: flex; gap: 36px; margin: 17px 0 0 0; }
+.stApp .hn-par { margin: 0 !important; }
+.stApp .hn-par dt {
+  font-size: 9px !important; font-weight: 700; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--text-3);
+  margin: 0 0 5px 0 !important; line-height: 1;
+}
+.stApp .hn-par dd {
+  font-size: 15px !important; font-weight: 700; color: var(--text);
+  margin: 0 !important; line-height: 1;
+}
+
+.stApp .hn-sec {
+  margin: 18px 0 0 0; padding-top: 15px; border-top: 1px solid var(--line-soft);
+}
+.stApp .hn-sec-tit {
+  font-size: 9px !important; font-weight: 700; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--text-3);
+  margin: 0 0 10px 0 !important; line-height: 1;
+}
+.stApp .hn-fila {
+  display: flex; align-items: center; gap: 11px; padding: 6px 0; min-width: 0;
+}
+.stApp .hn-fila b {
+  width: 20px; height: 20px; border-radius: 5px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--text-2); font-size: 9.5px !important; font-weight: 700;
+}
+.stApp .hn-fila.origen b {
+  background: var(--ambulancia); border-color: var(--ambulancia); color: #fff;
+}
+.stApp .hn-fila span {
+  flex: 1; font-size: 12.5px !important; color: var(--text); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.stApp .hn-fila em {
+  font-style: normal; font-size: 9px !important; font-weight: 700;
+  letter-spacing: .11em; text-transform: uppercase; color: var(--text-3);
+  flex: none;
+}
+
+/* --------------------------- Barra sobre el mapa ------------------------ */
+.stApp .hn-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 14px;
+  height: 46px; padding: 0 18px; background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.stApp .hn-bar-l { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.stApp .hn-bar-tit {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 10px !important; font-weight: 700; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--text-2); white-space: nowrap;
+}
+.stApp .hn-bar-tit::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ambulancia); flex: none;
+}
+.stApp .hn-bar-sep { width: 1px; height: 15px; background: var(--line); flex: none; }
+.stApp .hn-bar-desc {
+  font-size: 12px !important; color: var(--text-2); font-weight: 300;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.stApp .hn-bar-r { display: flex; align-items: center; gap: 22px; }
+.stApp .hn-bar-r dl {
+  display: flex; align-items: baseline; gap: 9px; margin: 0 !important;
+}
+.stApp .hn-bar-r dt {
+  font-size: 9px !important; font-weight: 700; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--text-3); margin: 0 !important;
+}
+.stApp .hn-bar-r dd {
+  font-size: 14px !important; font-weight: 700; color: var(--text);
+  margin: 0 !important;
+}
+
+/* ---------------------------------- Mapa -------------------------------- */
+[data-testid="stMain"] { --bar-h: 46px; }
+[data-testid="stMain"]:not(:has(.hn-bar)) { --bar-h: 0px; }
+.stApp [data-testid="stIFrame"],
+.stApp [data-testid="stCustomComponentV1"],
+.stApp iframe[title="st.iframe"] {
+  width: 100% !important;
+  height: calc(100vh - var(--nav-h) - var(--bar-h)) !important;
+  min-height: 320px;
+  border: none !important; display: block;
+}
+.stApp [data-testid="stElementContainer"]:has(iframe[title="st.iframe"]) {
+  height: calc(100vh - var(--nav-h) - var(--bar-h)) !important;
+}
+
+/* -------------------------------- Alertas ------------------------------- */
+.stApp div[data-testid="stAlert"] {
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 9px; box-shadow: none; padding: 11px 13px; margin-top: 14px;
+}
+.stApp div[data-testid="stAlert"] p {
+  font-size: 11.5px !important; color: var(--text-2); line-height: 1.5;
+}
+.stApp div[data-testid="stAlert"] svg { display: none; }
+
+[data-testid="stSpinner"] { color: var(--text-3); }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D3DADC; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* ------------------------------- Responsive ----------------------------- */
+@media (max-width: 1150px) {
+  :root { --panel-w: 330px; }
+  .stApp .hn-bar-desc { display: none; }
+}
+@media (max-width: 820px) {
+  .stApp .hn-bar-sep { display: none; }
+}
+@media (max-width: 720px) {
+  :root { --nav-h: 54px; }
+  [data-testid="stSidebarHeader"] { display: flex !important; }
+  [data-testid="stSidebarCollapseButton"],
+  [data-testid="stExpandSidebarButton"] {
+    display: flex !important; z-index: 1000002;
+  }
+  [data-testid="stExpandSidebarButton"] { top: calc(var(--nav-h) + 8px) !important; }
+  .stApp .hn-top { padding: 0 13px; }
+  .stApp .hn-word { font-size: 17px !important; }
+  .stApp .hn-cifras { gap: 14px; }
+  .stApp .hn-bar { height: 46px; padding: 0 13px; flex-wrap: nowrap; }
+  .stApp .hn-bar-r { gap: 14px; }
+}
+@media (max-width: 480px) {
+  .stApp .hn-bar-r { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+"""
+
+
+def aplicar_estilos():
+    variables = ";".join(f"--{k.replace('_', '-')}:{v}" for k, v in C.items())
+    # El @import debe ser la primera regla de la hoja o el navegador lo descarta.
     st.markdown(
-        """
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700;900&family=Lato:wght@300;400;700&display=swap');
-
-        * {
-            font-family: 'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        }
-
-        h1, h2, h3, h4, h5, h6 {
-            font-family: 'Merriweather', Georgia, serif !important;
-        }
-
-        /* Fondo principal app */
-        .stApp {
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-            padding-top: 64px !important;  /* altura navbar */
-        }
-
-        /* === NAVBAR ESTILO IMAGEN === */
-        .navbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 64px;
-            background: #ffffff;
-            border-bottom: 1px solid #e5e7eb;
-            box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
-            z-index: 999999;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 180px;
-        }
-
-        .navbar-logo-section {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .navbar-logo {
-            width: 40px;
-            height: 40px;
-            object-fit: contain;
-        }
-
-        .navbar-text-block {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-
-        .navbar-title {
-            font-size: 22px;
-            font-weight: 800;
-            margin: 0;
-            letter-spacing: 0.3px;
-            font-family: 'Merriweather', Georgia, serif;
-            color: #0f766e;
-        }
-
-        .navbar-subtitle {
-            display: none;
-        }
-
-        .navbar-right {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-size: 11px;
-            color: #6b7280;
-            font-weight: 500;
-            white-space: nowrap;
-        }
-
-        .navbar-metric-label {
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-size: 10px;
-            color: #6b7280;
-        }
-
-        .navbar-metric-value {
-            font-size: 14px;
-            font-weight: 800;
-            color: #0f766e;
-            margin-left: 4px;
-        }
-
-        .navbar-separator {
-            color: #d1d5db;
-            margin: 0 12px;
-        }
-
-        /* Sidebar ancho */
-        section[data-testid="stSidebar"] {
-            top: 64px !important;
-            height: calc(100vh - 64px) !important;
-            width: 400px !important;
-            min-width: 400px !important;
-            max-width: 400px !important;
-            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-            border-right: 1px solid rgba(94, 234, 212, 0.25);
-            box-shadow: 4px 0 24px rgba(15, 23, 42, 0.8);
-        }
-
-        section[data-testid="stSidebar"] > div {
-            background: transparent;
-            padding-top: 8px !important; 
-        }
-
-        section[data-testid="stSidebar"] * {
-            color: #f0fdfa !important;
-        }
-
-        section[data-testid="stSidebar"] h1,
-        section[data-testid="stSidebar"] h2,
-        section[data-testid="stSidebar"] h3 {
-            color: #f1f5f9 !important;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-        }
-
-        /* Quitar anchors en headings */
-        h1 a, h2 a, h3 a, [data-testid="stHeading"] a {
-            display: none !important;
-            pointer-events: none !important;
-        }
-
-        /* Selects / multiselects */
-        .stSelectbox > div > div,
-        .stMultiSelect > div > div {
-            background: rgba(15, 23, 42, 0.8) !important;
-            border: 1px solid rgba(94, 234, 212, 0.3);
-            border-radius: 6px;
-            backdrop-filter: blur(10px);
-            transition: all 0.3s ease;
-        }
-
-        .stSelectbox > div > div:hover,
-        .stMultiSelect > div > div:hover {
-            border-color: #0d9488;
-            box-shadow: 0 0 0 2px rgba(94, 234, 212, 0.25);
-        }
-
-        .stSelectbox input,
-        .stMultiSelect input {
-            color: #f1f5f9 !important;
-        }
-
-        div[role="listbox"] {
-            background: rgba(15, 23, 42, 0.98) !important;
-            border: 1px solid rgba(94, 234, 212, 0.35) !important;
-            border-radius: 6px;
-            backdrop-filter: blur(10px);
-        }
-
-        div[role="option"] {
-            background: transparent !important;
-            color: #e2e8f0 !important;
-            transition: all 0.2s ease;
-        }
-
-        div[role="option"]:hover {
-            background: rgba(13, 148, 136, 0.15) !important;
-            color: #5eead4 !important;
-        }
-
-        .stButton > button {
-            width: 100%;
-            background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
-            color: #ffffff;
-            border: none;
-            border-radius: 6px;
-            padding: 12px 20px;
-            font-weight: 600;
-            font-size: 13px;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 12px rgba(13, 148, 136, 0.4);
-        }
-
-        .stButton > button:hover {
-            background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(13, 148, 136, 0.55);
-        }
-
-        .stButton > button:active {
-            transform: translateY(0);
-        }
-
-        .stAlert {
-            background: rgba(15, 23, 42, 0.9);
-            border: 1px solid rgba(148, 163, 184, 0.25);
-            border-radius: 8px;
-            backdrop-filter: blur(10px);
-            padding: 16px;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .stSuccess {
-            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%) !important;
-            border-left: 4px solid #10b981 !important;
-        }
-
-        .stError {
-            background: linear-gradient(135deg, rgba(220, 38, 38, 0.15) 0%, rgba(220, 38, 38, 0.05) 100%) !important;
-            border-left: 4px solid #dc2626 !important;
-        }
-
-        .stInfo {
-            background: linear-gradient(135deg, rgba(13, 148, 136, 0.15) 0%, rgba(13, 148, 136, 0.05) 100%) !important;
-            border-left: 4px solid #0d9488 !important;
-        }
-
-        ::-webkit-scrollbar {
-            width: 10px;
-            height: 10px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: rgba(15, 23, 42, 0.8);
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: linear-gradient(180deg, #0d9488 0%, #0f766e 100%);
-            border-radius: 5px;
-            border: 2px solid transparent;
-            background-clip: padding-box;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(180deg, #0f766e 0%, #0d9488 100%);
-            background-clip: padding-box;
-        }
-
-        span[data-baseweb="tag"] {
-            background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%) !important;
-            color: #ffffff !important;
-            border-radius: 4px;
-            padding: 4px 10px;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 11px;
-            letter-spacing: 0.5px;
-        }
-
-        hr {
-            border-color: rgba(94, 234, 212, 0.25) !important;
-            margin: 16px 0 !important;
-        }
-
-        .main .block-container {
-            padding-top: 1rem;   /* <<< antes 2rem: sube Vista Base Activa y la tarjeta de rutas */
-            padding-bottom: 2rem;
-        }
-
-        .glass-card {
-            background: rgba(15, 23, 42, 0.85);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(94, 234, 212, 0.25);
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 8px 32px rgba(15, 23, 42, 0.9);
-        }
-        </style>
-        """,
+        f"<style>{_FUENTES}:root{{{variables}}}{_CSS_APP}</style>",
         unsafe_allow_html=True,
     )
 
 
-def main():
+# --------------------------------------------------------------------------- #
+# COMPONENTES DE INTERFAZ
+# --------------------------------------------------------------------------- #
+
+
+@st.cache_data(show_spinner=False)
+def logo_base64():
     try:
-        logo_img = Image.open(LOGO_PATH)
-        st.set_page_config(
-            page_title="HealthNet",
-            layout="wide",
-            page_icon=logo_img,
-            initial_sidebar_state="expanded",
-        )
-    except:
-        st.set_page_config(
-            page_title="HealthNet",
-            layout="wide",
-            page_icon="🏥",
-            initial_sidebar_state="expanded",
-        )
+        with open(LOGO_PATH, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except OSError:
+        return None
 
-    apply_custom_css()
-    init_session_state()
 
-    if "data_loaded" not in st.session_state:
-        logo_b64 = get_logo_base64()
-        logo_html = (
-            f'<img src="data:image/png;base64,{logo_b64}" style="width:120px; height:120px; object-fit:contain; filter: drop-shadow(0 8px 24px rgba(13, 148, 136, 0.5));">'
-            if logo_b64
-            else '<div style="font-size: 96px;">+</div>'
-        )
-
-        st.markdown(
-            f"""
-            <style>
-            @import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&family=Lato:wght@300;400;700&display=swap');
-            .loading-container {{
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                height: 100vh;
-                background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-            }}
-            .loading-logo {{
-                margin-bottom: 32px;
-                animation: pulse 2s ease-in-out infinite;
-            }}
-            @keyframes pulse {{
-                0%, 100% {{ transform: scale(1); opacity: 1; }}
-                50% {{ transform: scale(1.05); opacity: 0.9; }}
-            }}
-            .loading-title {{
-                font-size: 52px;
-                font-weight: 900;
-                margin-bottom: 12px;
-                letter-spacing: 1px;
-                font-family: 'Merriweather', Georgia, serif;
-            }}
-            .loading-title-health {{
-                color: #5eead4;
-            }}
-            .loading-title-net {{
-                color: #5eead4;
-            }}
-            .loading-subtitle {{
-                font-size: 16px;
-                color: #94a3b8;
-                margin-bottom: 56px;
-                font-weight: 400;
-                letter-spacing: 1px;
-                text-transform: uppercase;
-                font-family: 'Lato', sans-serif;
-            }}
-            .loading-bar-container {{
-                width: 300px;
-                height: 4px;
-                background: rgba(15, 23, 42, 0.9);
-                border-radius: 2px;
-                overflow: hidden;
-                border: 1px solid rgba(94, 234, 212, 0.4);
-            }}
-            .loading-bar {{
-                width: 100%;
-                height: 100%;
-                background: linear-gradient(90deg, #0d9488, #5eead4);
-                animation: loading 1.5s ease-in-out infinite;
-            }}
-            @keyframes loading {{
-                0% {{ transform: translateX(-100%); }}
-                100% {{ transform: translateX(100%); }}
-            }}
-            .loading-text {{
-                margin-top: 24px;
-                font-size: 14px;
-                color: #64748b;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-                font-family: 'Lato', sans-serif;
-            }}
-            </style>
-            <div class="loading-container">
-                <div class="loading-logo">{logo_html}</div>
-                <div class="loading-title">
-                    <span class="loading-title-health">Health</span><span class="loading-title-net">Net</span>
-                </div>
-                <div class="loading-subtitle">Sistema de Rutas de Emergencia</div>
-                <div class="loading-bar-container">
-                    <div class="loading-bar"></div>
-                </div>
-                <div class="loading-text">Inicializando Sistema</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        import time
-
-        time.sleep(1.5)
-        G, nodos_df = load_data_cached()
-
-        df_temp = nodos_df.copy()
-        df_temp["es_parada"] = False
-        ruta_base = generar_mapa_con_ruta(
-            G, df_temp, ruta=None, nombre_html="mapa_base.html", ruta_ordenada=None
-        )
-
-        st.session_state["data_loaded"] = True
-        st.session_state["G"] = G
-        st.session_state["nodos_df"] = nodos_df
-        st.session_state["map_html"] = ruta_base
-
-        time.sleep(0.5)
-        st.rerun()
-
-    G = st.session_state["G"]
-    nodos_df = st.session_state["nodos_df"]
-
-    logo_b64_navbar = get_logo_base64()
-    logo_html_navbar = (
-        f'<img src="data:image/png;base64,{logo_b64_navbar}" class="navbar-logo">'
-        if logo_b64_navbar
-        else '<div style="width: 40px; height: 40px; background: #0d9488; border-radius: 50%;"></div>'
-    )
-
-    nodos_count = G.number_of_nodes()
-    aristas_count = G.number_of_edges()
-
+def barra_superior(logo, n_nodos, n_aristas):
+    img = f'<img src="data:image/png;base64,{logo}" alt="">' if logo else ""
     st.markdown(
         f"""
-        <div class="navbar">
-            <div class="navbar-logo-section">
-                {logo_html_navbar}
-                <span class="navbar-separator">|</span>
-                <div class="navbar-text-block">
-                    <div class="navbar-title">HealthNet</div>
-                    <div class="navbar-subtitle">Sistema de Rutas de Emergencia</div>
-                </div>
-            </div>
-            <div class="navbar-right">
-                <span class="navbar-metric-label">NODOS</span>
-                <span class="navbar-metric-value">{nodos_count}</span>
-                <span class="navbar-separator">|</span>
-                <span class="navbar-metric-label">ARISTAS</span>
-                <span class="navbar-metric-value">{aristas_count}</span>
-            </div>
+        <div class="hn-top">
+          <div class="hn-brand">
+            {img}
+            <span class="hn-rule"></span>
+            <span class="hn-word">HealthNet</span>
+          </div>
+          <div class="hn-cifras">
+            <dl class="hn-cifra"><dt>Nodos</dt><dd>{n_nodos}</dd></dl>
+            <span class="hn-rule"></span>
+            <dl class="hn-cifra"><dt>Aristas</dt><dd>{n_aristas}</dd></dl>
+          </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    mapa_id = dict(zip(nodos_df["nombre"], nodos_df["node_id"]))
-    logo_b64 = get_logo_base64()
 
-    with st.sidebar:
-        logo_sidebar = (
-            f'<img src="data:image/png;base64,{logo_b64}" style="width:60px; height:60px; object-fit:contain; margin:0 auto; display:block; filter: drop-shadow(0 4px 12px rgba(13, 148, 136, 0.5));">'
-            if logo_b64
-            else ""
-        )
-
-        st.markdown(
-            f"""
-            <div style="text-align: center; padding: 24px 0; margin-bottom: 24px;
-                        background: linear-gradient(135deg, rgba(13, 148, 136, 0.18) 0%, rgba(15, 118, 110, 0.08) 100%);
-                        border-radius: 8px; border: 1px solid rgba(94, 234, 212, 0.4);">
-                {logo_sidebar}
-                <h2 style="margin: 16px 0 0 0; font-size: 18px; font-weight: 700; letter-spacing: 1px;">
-                    Panel de Control
-                </h2>
-                <p style="color: #ccfbf1; font-size: 11px; margin: 8px 0 0 0; font-weight: 400; letter-spacing: 0.5px; text-transform: uppercase;">
-                    Configuración de Ruta
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        # --- AMBULANCIA DE ORIGEN ---
-        st.markdown(
-            """
-            <div style="margin-bottom: 4px;">
-                <h3 style="margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.5px;">
-                    Ambulancia de Origen
-                </h3>
-            </div>
-            <div style="height: 1px; background: rgba(94, 234, 212, 0.35); margin-bottom: 20px;"></div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        ambulancias_df = nodos_df[nodos_df["tipo"] == "ambulancia"]
-        ambulancias = sorted(ambulancias_df["nombre"].tolist())
-
-        origen = st.selectbox(
-            "Seleccionar ambulancia",
-            options=["(Seleccionar)"] + ambulancias,
-            index=0,
-            label_visibility="collapsed",
-            key="selectbox_origen",
-        )
-
-        st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
-
-        # --- PUNTOS DE DESTINO ---
-        st.markdown(
-            """
-            <div style="margin-bottom: 4px;">
-                <h3 style="margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.5px;">
-                    Puntos de Destino
-                </h3>
-            </div>
-            <div style="height: 1px; background: rgba(94, 234, 212, 0.35); margin-bottom: 20px;"></div>
-            <p style="color: #94a3b8; font-size: 11px; margin: 0 0 10px 0;">
-                Seleccione uno o más destinos para calcular la ruta óptima
-            </p>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        destinos_df = nodos_df[nodos_df["tipo"].isin(["paciente", "hospital", "clinic"])]
-        destinos_lista = sorted(destinos_df["nombre"].tolist())
-
-        destinos_sel = st.multiselect(
-            "Destinos disponibles",
-            options=destinos_lista,
-            label_visibility="collapsed",
-            key="multiselect_destinos",
-        )
-
-        st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
-
-        # --- OPCIONES DE CÁLCULO ---
-        st.markdown(
-            """
-            <div style="margin-bottom: 4px;">
-                <h3 style="margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.5px;">
-                    Opciones de Cálculo
-                </h3>
-            </div>
-            <div style="height: 1px; background: rgba(94, 234, 212, 0.35); margin-bottom: 20px;"></div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        col1, col2 = st.columns(2)
-        with col1:
-            btn_simple = st.button("Ruta Simple", use_container_width=True, key="btn_simple")
-        with col2:
-            btn_multiple = st.button("Ruta Múltiple", use_container_width=True, key="btn_multiple")
-
-        btn_reset = st.button("Resetear Sistema", use_container_width=True, key="btn_reset")
-
-        st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
-
-        state = st.session_state["map_state"]
-        if state["tipo_ruta"] != "base" and state["tiempo"]:
-            minutos = int(state["tiempo"] / 60)
-            segundos = int(state["tiempo"] % 60)
-            st.markdown(
-                f"""
-                <div class="glass-card" style="animation: slideIn 0.3s ease;">
-                    <div style="margin-bottom: 12px;">
-                        <p style="color: #10b981; margin: 0; font-weight: 700; font-size: 12px; 
-                                  text-transform: uppercase; letter-spacing: 1px;">
-                            Estado: Ruta Calculada
-                        </p>
-                    </div>
-                    <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(15, 118, 110, 0.10) 100%);
-                                border-radius: 6px; padding: 12px;
-                                border-left: 3px solid #10b981;">
-                        <div style="margin-bottom: 8px;">
-                            <span style="color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
-                                Tiempo Estimado
-                            </span>
-                            <p style="color: #10b981; margin: 4px 0 0 0; font-size: 18px; font-weight: 700;">
-                                {minutos}m {segundos}s
-                            </p>
-                        </div>
-                        <div>
-                            <span style="color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
-                                Tipo de Ruta
-                            </span>
-                            <p style="color: #e2e8f0; margin: 4px 0 0 0; font-size: 14px; font-weight: 600; text-transform: uppercase;">
-                                {state["tipo_ruta"]}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        if btn_simple:
-            if origen == "(Seleccionar)" or len(destinos_sel) == 0:
-                st.error("Seleccione una ambulancia y al menos 1 destino")
-            else:
-                if len(destinos_sel) > 1:
-                    st.session_state["show_warning"] = True
-                    st.session_state[
-                        "warning_message"
-                    ] = f"Se seleccionaron {len(destinos_sel)} destinos. La ruta simple solo utilizó el primer destino: {destinos_sel[0]}. Para múltiples destinos use Ruta Múltiple."
-                else:
-                    st.session_state["show_warning"] = False
-
-                destino = destinos_sel[0]
-                src = mapa_id[origen]
-                dst = mapa_id[destino]
-                ruta, tiempo = calcular_ruta_optima(G, src, dst)
-                orden = [src, dst]
-                if ruta and tiempo is not None:
-                    st.session_state["map_state"] = {
-                        "tipo_ruta": "simple",
-                        "ruta": ruta,
-                        "tiempo": tiempo,
-                        "orden": orden,
-                        "nombres_paradas": [origen, destino],
-                    }
-
-                    df_mapa = nodos_df.copy()
-                    df_mapa["es_parada"] = False
-                    df_mapa.loc[
-                        df_mapa["nombre"].isin([origen, destino]), "es_parada"
-                    ] = True
-
-                    ruta_html = generar_mapa_con_ruta(
-                        G,
-                        df_mapa,
-                        ruta,
-                        nombre_html="ruta_simple_emergencia.html",
-                        ruta_ordenada=orden,
-                    )
-                    st.session_state["map_html"] = ruta_html
-
-                    st.success("Ruta simple calculada exitosamente")
-                    st.rerun()
-                else:
-                    st.error("No se encontró una ruta válida")
-
-        if btn_multiple:
-            st.session_state["show_warning"] = False
-
-            if origen == "(Seleccionar)" or len(destinos_sel) < 2:
-                st.error("Se requiere 1 ambulancia y mínimo 2 destinos")
-            else:
-                nodo_origen = mapa_id[origen]
-                nodos_destinos_raw = [mapa_id[d] for d in destinos_sel]
-                nodos_destinos = []
-                vistos = set()
-                for nid in nodos_destinos_raw:
-                    if nid not in vistos:
-                        nodos_destinos.append(nid)
-                        vistos.add(nid)
-
-                ruta, tiempo, orden = calcular_ruta_tsp(G, nodo_origen, nodos_destinos)
-
-                if ruta and tiempo is not None and orden:
-                    st.session_state["map_state"] = {
-                        "tipo_ruta": "multiple",
-                        "ruta": ruta,
-                        "tiempo": tiempo,
-                        "orden": orden,
-                        "nombres_paradas": [origen] + destinos_sel,
-                    }
-
-                    df_mapa = nodos_df.copy()
-                    df_mapa["es_parada"] = False
-                    df_mapa.loc[
-                        df_mapa["nombre"].isin([origen] + destinos_sel),
-                        "es_parada",
-                    ] = True
-
-                    ruta_html = generar_mapa_con_ruta(
-                        G,
-                        df_mapa,
-                        ruta,
-                        nombre_html="ruta_multiple_emergencia.html",
-                        ruta_ordenada=orden,
-                    )
-                    st.session_state["map_html"] = ruta_html
-
-                    st.success("Ruta optimizada calculada (Ruta Múltiple - TSP)")
-                    st.rerun()
-                else:
-                    st.error("Error al calcular ruta múltiple")
-
-        if btn_reset:
-            st.session_state["show_warning"] = False
-            st.session_state["map_state"] = {
-                "tipo_ruta": "base",
-                "ruta": None,
-                "tiempo": None,
-                "orden": None,
-                "nombres_paradas": None,
-            }
-
-            df_temp = nodos_df.copy()
-            df_temp["es_parada"] = False
-            ruta_base = generar_mapa_con_ruta(
-                G,
-                df_temp,
-                ruta=None,
-                nombre_html="mapa_base.html",
-                ruta_ordenada=None,
-            )
-            st.session_state["map_html"] = ruta_base
-
-            st.info("Sistema reiniciado correctamente")
-            st.rerun()
-
-    state = st.session_state["map_state"]
-    ruta_html = st.session_state.get("map_html")
-
-    if st.session_state.get("show_warning", False) and state["tipo_ruta"] == "simple":
-        minutos = int(state["tiempo"] / 60)
-        segundos = int(state["tiempo"] % 60)
-
-        col_warn, col_info = st.columns(2)
-
-        with col_warn:
-            st.markdown(
-                f"""
-                <div class="glass-card" style="background: linear-gradient(135deg, rgba(251, 146, 60, 0.12) 0%, rgba(15, 23, 42, 0.85) 100%);
-                            border: 1px solid rgba(251, 146, 60, 0.55); height: 100%;">
-                    <div style="display: flex; align-items: flex-start; gap: 16px;">
-                        <div style="width: 4px; min-height: 80px; background: linear-gradient(180deg, #fb923c, #f97316); border-radius: 2px;"></div>
-                        <div>
-                            <p style="color: #fb923c; margin: 0; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">
-                                Aviso: Múltiples Destinos
-                            </p>
-                            <p style="color: #94a3b8; margin: 8px 0 0 0; font-size: 12px; line-height: 1.6;">
-                                {st.session_state["warning_message"]}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        with col_info:
-            st.markdown(
-                f"""
-                <div class="glass-card" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(15, 23, 42, 0.9) 100%);
-                            border: 1px solid rgba(16, 185, 129, 0.45); height: 100%;">
-                    <div style="display: flex; align-items: flex-start; gap: 16px;">
-                        <div style="width: 4px; min-height: 80px; background: linear-gradient(180deg, #10b981, #059669); border-radius: 2px;"></div>
-                        <div style="flex: 1;">
-                            <p style="color: #10b981; margin: 0; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">
-                                Ruta Simple Calculada
-                            </p>
-                            <div style="display: flex; gap: 20px; margin-top: 12px;">
-                                <div>
-                                    <p style="color: #94a3b8; margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;">Tiempo</p>
-                                    <p style="color: #10b981; margin: 4px 0 0 0; font-weight: 700; font-size: 18px;">{minutos}m {segundos}s</p>
-                                </div>
-                                <div>
-                                    <p style="color: #94a3b8; margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;">Destinos</p>
-                                    <p style="color: #a78bfa; margin: 4px 0 0 0; font-weight: 700; font-size: 18px;">1</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    elif state["tipo_ruta"] == "base" or not state["ruta"]:
-        st.markdown(
-            """
-            <div class="glass-card" style="margin-bottom: 20px; animation: slideIn 0.3s ease;
-                        background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(15, 118, 110, 0.25) 100%);
-                        border: 1px solid rgba(94, 234, 212, 0.4);">
-                <div style="display: flex; align-items: center; gap: 16px;">
-                    <div style="width: 4px; height: 50px; background: linear-gradient(180deg, #0d9488, #0f766e); border-radius: 2px;"></div>
-                    <div>
-                        <p style="color: #5eead4; margin: 0; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">
-                            Vista Base Activa
-                        </p>
-                        <p style="color: #94a3b8; margin: 6px 0 0 0; font-size: 12px; line-height: 1.6;">
-                            Seleccione una ambulancia de origen y uno o más destinos en el panel lateral para calcular la ruta óptima.
-                        </p>
-                    </div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        minutos = int(state["tiempo"] / 60)
-        segundos = int(state["tiempo"] % 60)
-        if state["tipo_ruta"] == "simple":
-            st.markdown(
-                f"""
-                <div class="glass-card" style="margin-bottom: 20px; animation: slideIn 0.3s ease;
-                            background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(15, 23, 42, 0.9) 100%);
-                            border: 1px solid rgba(16, 185, 129, 0.45);">
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
-                        <div style="display: flex; align-items: center; gap: 16px;">
-                            <div style="width: 4px; height: 60px; background: linear-gradient(180deg, #10b981, #059669); border-radius: 2px;"></div>
-                            <div>
-                                <p style="color: #10b981; margin: 0; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px;">
-                                    Ruta Simple Calculada
-                                </p>
-                                <p style="color: #94a3b8; margin: 6px 0 0 0; font-size: 12px;">
-                                    Trayectoria directa punto a punto | Algoritmo: Dijkstra
-                                </p>
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 24px;">
-                            <div style="text-align: center; padding: 12px 20px; background: rgba(16, 185, 129, 0.14);
-                                        border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.5);">
-                                <p style="color: #94a3b8; margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Tiempo</p>
-                                <p style="color: #10b981; margin: 6px 0 0 0; font-weight: 700; font-size: 20px;">
-                                    {minutos}m {segundos}s
-                                </p>
-                            </div>
-                            <div style="text-align: center; padding: 12px 20px; background: rgba(167, 139, 250, 0.18);
-                                        border-radius: 6px; border: 1px solid rgba(167, 139, 250, 0.5);">
-                                <p style="color: #94a3b8; margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Destinos</p>
-                                <p style="color: #a78bfa; margin: 6px 0 0 0; font-weight: 700; font-size: 20px;">
-                                    1
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        else:
-            paradas_count = len(state["orden"]) - 1 if state["orden"] else 0
-            st.markdown(
-                f"""
-                <div class="glass-card" style="margin-bottom: 20px; animation: slideIn 0.3s ease;
-                            background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(15, 23, 42, 0.9) 100%);
-                            border: 1px solid rgba(16, 185, 129, 0.45);">
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
-                        <div style="display: flex; align-items: center; gap: 16px;">
-                            <div style="width: 4px; height: 60px; background: linear-gradient(180deg, #10b981, #059669); border-radius: 2px;"></div>
-                            <div>
-                                <p style="color: #10b981; margin: 0; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px;">
-                                    Ruta Múltiple Optimizada
-                                </p>
-                                <p style="color: #94a3b8; margin: 6px 0 0 0; font-size: 12px;">
-                                    Algoritmo TSP: Vecino más cercano + Optimización 2-opt
-                                </p>
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 24px;">
-                            <div style="text-align: center; padding: 12px 20px; background: rgba(16, 185, 129, 0.14);
-                                        border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.5);">
-                                <p style="color: #94a3b8; margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Tiempo Total</p>
-                                <p style="color: #10b981; margin: 6px 0 0 0; font-weight: 700; font-size: 20px;">
-                                    {minutos}m {segundos}s
-                                </p>
-                            </div>
-                            <div style="text-align: center; padding: 12px 20px; background: rgba(167, 139, 250, 0.18);
-                                        border-radius: 6px; border: 1px solid rgba(167, 139, 250, 0.5);">
-                                <p style="color: #94a3b8; margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Paradas</p>
-                                <p style="color: #a78bfa; margin: 6px 0 0 0; font-weight: 700; font-size: 20px;">
-                                    {paradas_count}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
+def paso(numero, titulo):
+    numero = html_lib.escape(str(numero))
+    titulo = html_lib.escape(str(titulo))
     st.markdown(
-        """
-        <div style="border: 1px solid rgba(94, 234, 212, 0.4); border-radius: 8px; overflow: hidden;
-                    box-shadow: 0 8px 32px rgba(15, 23, 42, 0.9); background: rgba(15, 23, 42, 0.85);
-                    backdrop-filter: blur(10px);">
-        """,
+        f'<div class="hn-paso"><b>{numero}</b><i>·</i>{titulo}</div>',
         unsafe_allow_html=True,
     )
 
-    if ruta_html and os.path.exists(ruta_html):
-        with open(ruta_html, "r", encoding="utf-8") as f:
-            html(f.read(), height=720)
 
-    st.markdown("</div>", unsafe_allow_html=True)
+def nota(cantidad, texto):
+    cantidad = html_lib.escape(str(cantidad))
+    texto = html_lib.escape(str(texto))
+    st.markdown(
+        f'<div class="hn-nota"><b>{cantidad}</b> {texto}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def barra_mapa(titulo, detalle, cifras=None):
+    """Franja fina sobre el mapa con el estado del calculo."""
+    celdas = "".join(
+        f"<dl><dt>{html_lib.escape(str(k))}</dt><dd>{html_lib.escape(str(v))}</dd></dl>"
+        for k, v in (cifras or [])
+    )
+    separador = '<span class="hn-bar-sep"></span>' if detalle else ""
+    titulo = html_lib.escape(str(titulo))
+    detalle = html_lib.escape(str(detalle))
+    st.markdown(
+        "<div class='hn-bar'>"
+        f"<div class='hn-bar-l'><span class='hn-bar-tit'>{titulo}</span>"
+        f"{separador}<span class='hn-bar-desc'>{detalle}</span></div>"
+        f"<div class='hn-bar-r'>{celdas}</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def ficha_ruta(titulo, tiempo, pares, secuencia=None):
+    """Tarjeta del panel: tiempo dominante, cifras y secuencia de paradas."""
+    titulo = html_lib.escape(str(titulo))
+    tiempo = html_lib.escape(str(tiempo))
+    celdas = "".join(
+        f"<dl class='hn-par'><dt>{html_lib.escape(str(k))}</dt>"
+        f"<dd>{html_lib.escape(str(v))}</dd></dl>"
+        for k, v in pares
+    )
+
+    filas = ""
+    if secuencia:
+        cuerpo = ""
+        for i, nombre in enumerate(secuencia):
+            clase = "hn-fila origen" if i == 0 else "hn-fila"
+            marca = "A" if i == 0 else str(i)
+            rol = "Origen" if i == 0 else f"Parada {i}"
+            nombre = html_lib.escape(str(nombre))
+            cuerpo += (
+                f"<div class='{clase}'><b>{marca}</b>"
+                f"<span>{nombre}</span><em>{rol}</em></div>"
+            )
+        filas = (
+            f"<div class='hn-sec'><div class='hn-sec-tit'>Secuencia</div>{cuerpo}</div>"
+        )
+
+    st.markdown(
+        f"<div class='hn-ficha'><div class='hn-ficha-tit'>{titulo}</div>"
+        f"<div class='hn-reloj'><strong>{tiempo}</strong><span>tiempo estimado</span></div>"
+        f"<div class='hn-pares'>{celdas}</div>{filas}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def formatear_tiempo(segundos):
+    minutos, resto = divmod(int(segundos), 60)
+    if minutos >= 60:
+        horas, minutos = divmod(minutos, 60)
+        return f"{horas}h {minutos:02d}m"
+    return f"{minutos}m {resto:02d}s"
+
+
+# --------------------------------------------------------------------------- #
+# ESTADO
+# --------------------------------------------------------------------------- #
+
+
+def estado_inicial():
+    st.session_state.setdefault(
+        "ruta",
+        {
+            "tipo": "base",
+            "nodos": None,
+            "tiempo": None,
+            "orden": None,
+            "paradas": None,
+            "paradas_ids": None,
+        },
+    )
+    st.session_state.setdefault("mapa", None)
+    st.session_state.setdefault("aviso", "")
+    st.session_state.setdefault("origen_id", SIN_ASIGNAR)
+    st.session_state.setdefault("destinos_ids", [])
+
+
+def resetear():
+    st.session_state["ruta"] = {
+        "tipo": "base",
+        "nodos": None,
+        "tiempo": None,
+        "orden": None,
+        "paradas": None,
+        "paradas_ids": None,
+    }
+    st.session_state["aviso"] = ""
+    st.session_state["mapa"] = None
+    st.session_state["origen_id"] = SIN_ASIGNAR
+    st.session_state["destinos_ids"] = []
+
+
+# --------------------------------------------------------------------------- #
+# APLICACION
+# --------------------------------------------------------------------------- #
+
+
+def main():
+    st.set_page_config(
+        page_title="HealthNet",
+        page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else "+",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+    aplicar_estilos()
+    estado_inicial()
+
+    with st.spinner("Cargando red vial y puntos de interés..."):
+        try:
+            G, nodos_df = cargar_datos()
+        # Frontera de UI: cualquier fallo de red, formato o biblioteca debe
+        # convertirse en un mensaje util en vez de exponer un traceback.
+        except Exception as exc:  # noqa: BLE001
+            st.error(
+                "No se pudieron cargar los datos geográficos. Verifique su conexión "
+                f"a internet y vuelva a intentarlo. Detalle: {exc}"
+            )
+            st.stop()
+
+    barra_superior(logo_base64(), G.number_of_nodes(), G.number_of_edges())
+
+    entidades = nodos_df.set_index("entity_id", drop=False)
+    nombre_entidad = entidades["nombre"].to_dict()
+    nodo_entidad = entidades["node_id"].astype("int64").to_dict()
+    tipo_entidad = entidades["tipo"].to_dict()
+
+    ambulancias = sorted(
+        nodos_df.loc[nodos_df["tipo"] == "ambulancia", "entity_id"],
+        key=lambda entity_id: (
+            len(nombre_entidad[entity_id]),
+            nombre_entidad[entity_id],
+        ),
+    )
+
+    destinos_df = nodos_df[nodos_df["tipo"].isin(TIPOS_DESTINO)]
+    destinos_disponibles = sorted(
+        destinos_df["entity_id"],
+        key=lambda entity_id: (
+            len(nombre_entidad[entity_id]),
+            nombre_entidad[entity_id],
+            entity_id,
+        ),
+    )
+
+    def etiqueta_origen(entity_id):
+        return SIN_ASIGNAR if entity_id == SIN_ASIGNAR else nombre_entidad[entity_id]
+
+    def etiqueta_destino(entity_id):
+        return f"{PUNTO[tipo_entidad[entity_id]]} {nombre_entidad[entity_id]}"
+
+    # ------------------------------- Panel ---------------------------------- #
+    with st.sidebar:
+        paso("01", "Ambulancia de origen")
+        origen_id = st.selectbox(
+            "Ambulancia de origen",
+            options=[SIN_ASIGNAR] + ambulancias,
+            format_func=etiqueta_origen,
+            label_visibility="collapsed",
+            key="origen_id",
+        )
+        nota(len(ambulancias), "unidades disponibles en la red")
+
+        paso("02", "Puntos de destino")
+        destinos_sel = st.multiselect(
+            "Puntos de destino",
+            options=destinos_disponibles,
+            format_func=etiqueta_destino,
+            placeholder="Buscar hospital, clínica o paciente",
+            label_visibility="collapsed",
+            key="destinos_ids",
+        )
+        if destinos_sel:
+            plural = (
+                "destino seleccionado"
+                if len(destinos_sel) == 1
+                else "destinos seleccionados"
+            )
+            nota(len(destinos_sel), plural)
+        else:
+            nota(len(destinos_disponibles), "puntos disponibles")
+
+        paso("03", "Cálculo de ruta")
+        hay_origen = origen_id != SIN_ASIGNAR
+        # Se resalta el boton del modo activo; antes "Ruta simple" iba fija en
+        # primario y parecia que se activaba la opcion equivocada.
+        modo = st.session_state["ruta"]["tipo"]
+        col_a, col_b = st.columns(2, gap="small")
+        btn_simple = col_a.button(
+            "Ruta simple",
+            key="btn_simple",
+            type="primary" if modo == "simple" else "secondary",
+            width="stretch",
+            disabled=not (hay_origen and destinos_sel),
+            help="Requiere una ambulancia de origen y al menos un destino.",
+        )
+        btn_multiple = col_b.button(
+            "Ruta múltiple",
+            key="btn_multiple",
+            type="primary" if modo == "multiple" else "secondary",
+            width="stretch",
+            disabled=not (hay_origen and len(destinos_sel) >= 2),
+            help="Requiere una ambulancia de origen y al menos dos destinos.",
+        )
+        st.markdown(
+            "<div class='hn-algo'><b>Simple:</b> 1 destino<br>"
+            "<b>Múltiple:</b> 2 o más destinos</div>",
+            unsafe_allow_html=True,
+        )
+
+        # ----------------------------- Acciones ----------------------------- #
+        if btn_simple:
+            if not hay_origen or not destinos_sel:
+                st.error("Seleccione una ambulancia de origen y al menos un destino.")
+            else:
+                destino_id = destinos_sel[0]
+                origen_nombre = nombre_entidad[origen_id]
+                destino_nombre = nombre_entidad[destino_id]
+                src, dst = int(nodo_entidad[origen_id]), int(nodo_entidad[destino_id])
+                nodos, tiempo = calcular_ruta_optima(G, src, dst)
+                if nodos is not None:
+                    st.session_state["aviso"] = (
+                        f"Se indicaron {len(destinos_sel)} destinos: la ruta simple "
+                        f"solo cubre el primero ({destino_nombre}). Use Ruta múltiple para "
+                        "cubrirlos todos."
+                        if len(destinos_sel) > 1
+                        else ""
+                    )
+                    st.session_state["ruta"] = {
+                        "tipo": "simple",
+                        "nodos": nodos,
+                        "tiempo": tiempo,
+                        "orden": [src, dst],
+                        "paradas": [origen_nombre, destino_nombre],
+                        "paradas_ids": [origen_id, destino_id],
+                    }
+                    st.session_state["mapa"] = None
+                    st.rerun()
+                else:
+                    st.error("No existe un trayecto viable entre esos puntos.")
+
+        if btn_multiple:
+            if not hay_origen or len(destinos_sel) < 2:
+                st.error(
+                    "Se requiere una ambulancia de origen y al menos dos destinos."
+                )
+            else:
+                src = int(nodo_entidad[origen_id])
+                objetivos = [int(nodo_entidad[entity_id]) for entity_id in destinos_sel]
+                resultado = calcular_ruta_tsp(G, src, objetivos)
+                if resultado["error"] is None:
+                    paradas_ids = [
+                        origen_id if indice == 0 else destinos_sel[indice - 1]
+                        for indice in resultado["orden_indices"]
+                    ]
+                    st.session_state["aviso"] = ""
+                    st.session_state["ruta"] = {
+                        "tipo": "multiple",
+                        "nodos": resultado["ruta"],
+                        "tiempo": resultado["tiempo"],
+                        "orden": resultado["orden_nodos"],
+                        "paradas": [nombre_entidad[eid] for eid in paradas_ids],
+                        "paradas_ids": paradas_ids,
+                    }
+                    st.session_state["mapa"] = None
+                    st.rerun()
+                else:
+                    afectados = [
+                        nombre_entidad[destinos_sel[indice - 1]]
+                        for indice in resultado["no_visitados"]
+                        if 0 < indice <= len(destinos_sel)
+                    ]
+                    detalle = ", ".join(afectados[:5])
+                    if len(afectados) > 5:
+                        detalle += f" y {len(afectados) - 5} más"
+                    st.session_state["ruta"] = {
+                        "tipo": "base",
+                        "nodos": None,
+                        "tiempo": None,
+                        "orden": None,
+                        "paradas": None,
+                        "paradas_ids": None,
+                    }
+                    st.session_state["mapa"] = None
+                    st.error(
+                        f"{resultado['error']}"
+                        + (f" Destinos afectados: {detalle}." if detalle else "")
+                    )
+
+        # ----------------------------- Resultado ---------------------------- #
+        estado = st.session_state["ruta"]
+        if estado["tipo"] == "simple":
+            ficha_ruta(
+                "Ruta simple calculada",
+                formatear_tiempo(estado["tiempo"]),
+                [("Destinos", "1"), ("Algoritmo", "Dijkstra")],
+                secuencia=estado["paradas"],
+            )
+        elif estado["tipo"] == "multiple":
+            ficha_ruta(
+                "Ruta múltiple optimizada",
+                formatear_tiempo(estado["tiempo"]),
+                [
+                    ("Paradas", f"{max(len(estado['orden']) - 1, 0)}"),
+                    ("Algoritmo", "2-opt"),
+                ],
+                secuencia=estado["paradas"],
+            )
+
+        if st.session_state["aviso"]:
+            st.warning(st.session_state["aviso"])
+
+        st.button(
+            "Resetear sistema",
+            key="btn_reset",
+            type="secondary",
+            width="stretch",
+            disabled=(
+                estado["tipo"] == "base"
+                and origen_id == SIN_ASIGNAR
+                and not destinos_sel
+            ),
+            on_click=resetear,
+        )
+
+    # --------------------------- Area principal ----------------------------- #
+    estado = st.session_state["ruta"]
+
+    if estado["tipo"] == "simple":
+        barra_mapa(
+            "Ruta simple calculada",
+            "Camino de menor tiempo · Dijkstra sobre tiempos de viaje",
+            [
+                ("Tiempo total", formatear_tiempo(estado["tiempo"])),
+                ("Tramos", f"{len(estado['nodos']) - 1}"),
+            ],
+        )
+    elif estado["tipo"] == "multiple":
+        barra_mapa(
+            "Ruta múltiple optimizada",
+            "Vecino más cercano + optimización 2-opt",
+            [
+                ("Tiempo total", formatear_tiempo(estado["tiempo"])),
+                ("Paradas", f"{max(len(estado['orden']) - 1, 0)}"),
+            ],
+        )
+    # En reposo no se dibuja barra de estado: el mapa ocupa toda el area.
+
+    if st.session_state["mapa"] is None:
+        with st.spinner("Trazando mapa..."):
+            if estado["tipo"] == "base":
+                clave_mapa = json.dumps(_firma_cache(), sort_keys=True)
+                st.session_state["mapa"] = mapa_base(G, nodos_df, clave_mapa)
+            else:
+                st.session_state["mapa"] = generar_mapa(
+                    G, nodos_df, estado["nodos"], estado["paradas_ids"]
+                )
+
+    html(st.session_state["mapa"], height=760, scrolling=False)
 
 
 if __name__ == "__main__":

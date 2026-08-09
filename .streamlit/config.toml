@@ -1,0 +1,23 @@
+# Tema base de Streamlit. Definirlo aqui evita pelear con CSS: sin esto,
+# Streamlit usa su tema por defecto (primario rojo #FF4B4B y base segun el
+# sistema operativo), que era lo que tenia los botones en rojo y negro.
+[theme]
+base = "light"
+primaryColor = "#0F766E"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F7F9F9"
+textColor = "#1B2426"
+linkColor = "#0F766E"
+borderColor = "#E2E7E8"
+showWidgetBorder = true
+baseRadius = "0.6rem"
+buttonRadius = "0.6rem"
+baseFontSize = 15
+font = "serif"
+headingFont = "serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
