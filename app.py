@@ -1,11 +1,3 @@
-"""HealthNet - Sistema de rutas de emergencia.
-
-Optimizacion de rutas para ambulancias sobre la red vial real (OpenStreetMap)
-del distrito configurado en PLACE_NAME.
-
-Ejecutar con:  streamlit run app.py
-"""
-
 import base64
 import hashlib
 import html as html_lib
@@ -30,10 +22,6 @@ from folium.plugins import Fullscreen, LocateControl
 from shapely.ops import linemerge
 from streamlit.components.v1 import html
 
-# --------------------------------------------------------------------------- #
-# CONFIGURACION
-# --------------------------------------------------------------------------- #
-
 PLACE_NAME = "Miraflores, Lima, Peru"
 POI_TAGS = {"amenity": ["hospital", "clinic"]}
 
@@ -41,7 +29,7 @@ N_PACIENTES = 200
 N_AMBULANCIAS = 40
 SEED = 7
 
-SIN_ASIGNAR = "Sin asignar"  # Centinela del selector de unidad de origen.
+SIN_ASIGNAR = "Sin asignar"
 
 BASE_DIR = Path(__file__).resolve().parent
 LOGO_PATH = BASE_DIR / "HealthNetLogo.png"
@@ -54,12 +42,9 @@ CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 
 LOGGER = logging.getLogger("healthnet")
 
-# Tolerancia de simplificacion de la traza en grados (~2 m). Aligera el GeoJSON
-# sin diferencia visible a escala urbana.
 SIMPLIFICAR_GRADOS = 0.00002
 PRECISION_GRADOS = 1e-5
 
-# --- Paleta clara -------------------------------------------------------- #
 C = {
     "bg": "#FFFFFF",
     "lienzo": "#F4F6F6",
@@ -77,10 +62,9 @@ C = {
     "paciente": "#4E7F9E",
     "ambulancia": "#17A08C",
     "ruta": "#D93B48",
-    # Barra superior: marca y cifras en teal, etiquetas en gris accesible.
     "nav_marca": "#0F766E",
     "nav_valor": "#0F766E",
-    "nav_label": "#57767E",  # 4.9:1 sobre blanco
+    "nav_label": "#57767E",
     "nav_sep": "#C4D6D9",
 }
 
@@ -105,23 +89,12 @@ PLURALES = {
     "ambulancia": "Ambulancias",
 }
 
-# Marca que precede a cada destino en el buscador y en sus chips. Las etiquetas
-# nativas del multiselect no admiten color por elemento, asi que el tipo se
-# distingue por la forma del simbolo. Son glifos de texto, no emoji.
 PUNTO = {"hospital": "●", "clinic": "◆", "paciente": "○"}
 
 TIPOS_DESTINO = ("hospital", "clinic", "paciente")
 
 
-# --------------------------------------------------------------------------- #
-# CARGA Y PROCESAMIENTO DE DATOS
-# --------------------------------------------------------------------------- #
-
-
 def _construir_grafo(lugar):
-    """Descarga una red vial dirigida en la que todos los nodos son alcanzables."""
-    # HealthNet administra un cache con expiracion. Desactivar el cache interno
-    # de OSMnx evita reutilizar indefinidamente una respuesta antigua de Overpass.
     ox.settings.use_cache = False
     ox.settings.log_console = False
 
@@ -136,7 +109,6 @@ def _construir_grafo(lugar):
 
 
 def _descargar_pois(lugar):
-    """Obtiene hospitales y clinicas. Devuelve una lista de dicts de nodos."""
     pois = ox.features_from_place(lugar, POI_TAGS)
     if pois.empty:
         raise RuntimeError(f"No se encontraron hospitales o clinicas en {lugar}.")
@@ -169,7 +141,6 @@ def _descargar_pois(lugar):
 
 
 def _generar_moviles(G, rng):
-    """Crea pacientes y ambulancias sobre nodos reales de la red vial."""
     disponibles = list(G.nodes())
     total = N_PACIENTES + N_AMBULANCIAS
     if len(disponibles) < total:
@@ -201,7 +172,6 @@ def _generar_moviles(G, rng):
 
 
 def _asignar_nodos_cercanos(G, df):
-    """Ancla al nodo vial mas cercano las filas que aun no tienen node_id."""
     if "node_id" not in df.columns:
         df["node_id"] = pd.NA
 
@@ -225,7 +195,6 @@ def _asignar_nodos_cercanos(G, df):
 
 
 def cargar_y_procesar_datos(lugar):
-    """Devuelve (grafo, DataFrame de nodos de interes) listos para rutear."""
     rng = random.Random(SEED)
 
     G = _construir_grafo(lugar)
@@ -249,7 +218,6 @@ def cargar_y_procesar_datos(lugar):
 
 
 def _firma_cache():
-    """Parametros que determinan si un cache sigue representando la app actual."""
     return {
         "version": CACHE_VERSION,
         "lugar": PLACE_NAME,
@@ -346,7 +314,6 @@ def _temporal_para(destino):
 
 
 def _guardar_cache(G, df):
-    """Guarda GraphML/JSON de forma atomica, sin deserializacion ejecutable."""
     temporales = {
         CACHE_GRAPH_FILE: _temporal_para(CACHE_GRAPH_FILE),
         CACHE_ENTITIES_FILE: _temporal_para(CACHE_ENTITIES_FILE),
@@ -376,7 +343,6 @@ def _guardar_cache(G, df):
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
-        # Los datos se reemplazan primero y el metadata actua como confirmacion.
         os.replace(temporales[CACHE_GRAPH_FILE], CACHE_GRAPH_FILE)
         os.replace(temporales[CACHE_ENTITIES_FILE], CACHE_ENTITIES_FILE)
         os.replace(temporales[CACHE_META_FILE], CACHE_META_FILE)
@@ -391,7 +357,6 @@ def _guardar_cache(G, df):
 
 @st.cache_resource(show_spinner=False, ttl=CACHE_TTL_SECONDS)
 def cargar_datos():
-    """Carga un cache seguro y vigente; si no existe, consulta OpenStreetMap."""
     guardado = _cargar_cache()
     if guardado is not None:
         return guardado
@@ -404,13 +369,7 @@ def cargar_datos():
     return G, df
 
 
-# --------------------------------------------------------------------------- #
-# ALGORITMOS DE RUTEO
-# --------------------------------------------------------------------------- #
-
-
 def calcular_ruta_optima(G, origen, destino):
-    """Dijkstra sobre travel_time. Devuelve (lista de nodos, segundos)."""
     try:
         ruta = nx.dijkstra_path(G, origen, destino, weight="travel_time")
         return ruta, nx.path_weight(G, ruta, weight="travel_time")
@@ -419,7 +378,6 @@ def calcular_ruta_optima(G, origen, destino):
 
 
 def _matriz_tiempos(G, nodos):
-    """Matriz de tiempos entre todos los puntos, con un Dijkstra por origen."""
     n = len(nodos)
     matriz = [[math.inf] * n for _ in range(n)]
     for i, origen in enumerate(nodos):
@@ -439,7 +397,6 @@ def _costo(orden, matriz):
 
 
 def _vecino_mas_cercano(matriz):
-    """Vecino cercano que evita entrar antes de tiempo en un componente sin salida."""
     pendientes = set(range(1, len(matriz)))
     orden = [0]
     actual = 0
@@ -462,7 +419,6 @@ def _vecino_mas_cercano(matriz):
 
 
 def _dos_opt(orden, matriz):
-    """Mejora la ruta invirtiendo segmentos mientras se reduzca el costo."""
     if len(orden) <= 3:
         return orden
 
@@ -483,9 +439,6 @@ def _dos_opt(orden, matriz):
 
 
 def calcular_ruta_tsp(G, nodo_origen, nodos_destino):
-    """TSP abierto atomico: visita todos los destinos o devuelve un error."""
-    # Los indices representan entidades, no nodos. Dos entidades ubicadas sobre
-    # el mismo nodo siguen siendo dos paradas validas con costo cero entre ellas.
     puntos = [nodo_origen] + list(nodos_destino)
     if len(puntos) < 2:
         return {
@@ -552,13 +505,7 @@ def calcular_ruta_tsp(G, nodo_origen, nodos_destino):
     }
 
 
-# --------------------------------------------------------------------------- #
-# MAPA
-# --------------------------------------------------------------------------- #
-
-
 def geojson_ruta(G, ruta):
-    """Traza de la ruta calculada, unida en una sola linea y simplificada."""
     if not ruta or len(ruta) < 2:
         return None
     tramos = ox.routing.route_to_gdf(G, ruta, weight="travel_time")
@@ -597,7 +544,6 @@ _CSS_MAPA = """
 .leaflet-container { background: LIENZO; }
 .leaflet-div-icon { background: transparent; border: none; }
 
-/* --- Marcadores --- */
 .mk-inst {
   display: flex; align-items: center; justify-content: center;
   border-radius: 7px; color: #fff; font-weight: 700; line-height: 1;
@@ -616,7 +562,6 @@ _CSS_MAPA = """
   box-shadow: 0 1px 4px rgba(27,36,38,.3);
 }
 
-/* --- Popups --- */
 .leaflet-popup-content-wrapper {
   background: #fff; color: TEXT; border: 1px solid LINE;
   border-radius: 8px; box-shadow: 0 4px 14px rgba(27,36,38,.12); padding: 1px;
@@ -635,7 +580,6 @@ _CSS_MAPA = """
   font-size: 9.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
 }
 
-/* --- Controles --- */
 .leaflet-bar, .leaflet-control-layers {
   background: #fff !important; border: 1px solid LINE !important;
   border-radius: 8px !important; box-shadow: 0 1px 3px rgba(27,36,38,.08) !important;
@@ -676,7 +620,6 @@ _CSS_MAPA = """
   color: TEXT2; font-size: 9.5px;
 }
 
-/* --- Leyenda --- */
 .hn-leyenda {
   position: absolute; bottom: 24px; right: 12px; z-index: 800;
   background: #fff; border: 1px solid LINE; border-radius: 8px;
@@ -701,13 +644,11 @@ _CSS_MAPA = """
 
 
 def _rgb(hexadecimal):
-    """'#RRGGBB' -> 'r,g,b', para componer rgba() a partir de la paleta."""
     h = hexadecimal.lstrip("#")
     return ",".join(str(int(h[i : i + 2], 16)) for i in (0, 2, 4))
 
 
 def _css_mapa():
-    """Resuelve los tokens de color dentro del CSS del mapa."""
     reemplazos = {
         "LINESOFT": C["line_soft"],
         "LINE": C["line"],
@@ -763,20 +704,17 @@ def _leyenda():
 
 
 def _nombre_capa(tipo):
-    """Etiqueta del control de capas. Leaflet la inserta con innerHTML, asi que
-    admite el punto de color como marcado."""
     return f'<i class="cap-dot" style="background:{COLORES[tipo]}"></i>{PLURALES[tipo]}'
 
 
 def _capas_entidades(m, df, paradas):
-    """Las cuatro capas conmutables de entidades."""
     capas = {t: folium.FeatureGroup(name=_nombre_capa(t), show=True) for t in COLORES}
 
     for fila in df.itertuples():
         tipo = fila.tipo
         capa = capas.get(tipo)
         if capa is None or fila.entity_id in paradas:
-            continue  # Las paradas se dibujan sobre la capa de la ruta.
+            continue
 
         coords = (fila.lat, fila.lon)
         popup = _popup(fila.nombre, tipo)
@@ -807,7 +745,6 @@ def _capas_entidades(m, df, paradas):
 
 
 def _capa_ruta(m, G, ruta, paradas, indice):
-    """Traza de la ruta con el origen y las paradas numeradas encima."""
     grupo = folium.FeatureGroup(name="Ruta de emergencia", show=True, control=False)
 
     traza = geojson_ruta(G, ruta)
@@ -850,16 +787,14 @@ def _capa_ruta(m, G, ruta, paradas, indice):
 
 
 def generar_mapa(G, df, ruta=None, paradas=None):
-    """Renderiza el mapa completo y devuelve su HTML (sin tocar el disco)."""
     m = folium.Map(
         location=[df["lat"].mean(), df["lon"].mean()],
         tiles=None,
         control_scale=True,
-        prefer_canvas=True,  # Cientos de puntos en canvas, no en nodos SVG.
+        prefer_canvas=True,
         zoom_control=True,
     )
 
-    # control=False: el tile base no debe aparecer como opcion en CAPAS.
     folium.TileLayer("cartodbpositron", name="Base", control=False).add_to(m)
 
     paradas = list(paradas or [])
@@ -875,7 +810,6 @@ def generar_mapa(G, df, ruta=None, paradas=None):
         }
         _capa_ruta(m, G, ruta, paradas, indice)
 
-    # Encuadra la extension real de los puntos, con un margen pequeno.
     m.fit_bounds(
         [[df["lat"].min(), df["lon"].min()], [df["lat"].max(), df["lon"].max()]],
         padding=(18, 18),
@@ -895,10 +829,6 @@ def mapa_base(_G, _df, clave):
     return generar_mapa(_G, _df)
 
 
-# --------------------------------------------------------------------------- #
-# SISTEMA DE DISENO (CSS)
-# --------------------------------------------------------------------------- #
-
 _FUENTES = (
     "@import url('https://fonts.googleapis.com/css2?"
     "family=Merriweather:wght@300;400;700;900&display=swap');"
@@ -916,8 +846,6 @@ html, body, .stApp, [class*="st-"], button, input, select, textarea, div, span,
 p, h1, h2, h3, h4, h5, h6, li, dt, dd, label, em, b, strong, i {
   font-family: 'Merriweather', Georgia, serif !important;
 }
-/* Los iconos de Streamlit son ligaduras tipograficas: con la regla de arriba
-   el navegador dibujaria su nombre como texto ("keyboard_double_arrow_left"). */
 [data-testid="stIconMaterial"], [class*="material-symbols"], span[translate="no"] {
   font-family: 'Material Symbols Rounded', 'Material Symbols Outlined' !important;
   font-feature-settings: 'liga' 1 !important;
@@ -930,22 +858,16 @@ header[data-testid="stHeader"], [data-testid="stToolbar"],
 [data-testid="stDecoration"], footer { display: none !important; }
 [data-testid="stSidebarCollapseButton"],
 [data-testid="stExpandSidebarButton"] { display: none !important; }
-/* El encabezado del panel solo contiene el boton de colapsar, que en escritorio
-   esta oculto. Con padding 0 seguia reservando 56px de hueco muerto arriba. */
 [data-testid="stSidebarHeader"] { display: none !important; }
 
-/* La barra superior ocupa el ancho completo: se baja toda la app (panel
-   incluido) para que nada quede tapado debajo de ella. */
+
 [data-testid="stAppViewContainer"] {
   padding-top: var(--nav-h);
   height: 100vh !important;
   min-height: 100vh !important;
   overflow: hidden;
 }
-/* Los hijos han de caber DENTRO del hueco que deja la barra. Si conservan
-   height:100% suman 100vh + var(--nav-h): el contenedor queda desbordado y, al
-   enfocar el mapa, el navegador lo desplaza para "revelarlo", escondiendo la
-   cabecera del panel bajo la barra fija y sin forma de recuperarla. */
+
 [data-testid="stAppViewContainer"] > *,
 section[data-testid="stSidebar"],
 [data-testid="stMain"] {
@@ -957,22 +879,18 @@ html, body { overflow: hidden; }
   padding: 0 !important; max-width: 100% !important;
 }
 [data-testid="stMain"] { background: var(--bg); overflow: hidden !important; }
-/* El area principal apila contenedores invisibles (la hoja de estilos y la
-   barra fija) antes del mapa; el gap del flex dejaba una banda blanca de 30 px
-   que ademas empujaba el iframe fuera de pantalla y cortaba la leyenda. */
+
 [data-testid="stMain"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
 [data-testid="stMain"] [data-testid="stElementContainer"]:has(style) {
   display: none !important;
 }
-/* El contenedor de la franja tambien se encogia (31 px para 46 px de alto),
-   con lo que el mapa arrancaba demasiado arriba y sobraba blanco al final. */
+
 [data-testid="stMain"] [data-testid="stElementContainer"]:has(.hn-bar) {
   height: var(--bar-h) !important;
   min-height: var(--bar-h) !important;
   flex: none !important;
 }
 
-/* ------------------------------- Barra superior ------------------------- */
 .stApp .hn-top {
   position: fixed; inset: 0 0 auto 0; height: var(--nav-h); z-index: 1000001;
   display: flex; align-items: center; justify-content: space-between;
@@ -1003,7 +921,6 @@ html, body { overflow: hidden; }
   margin: 0 !important; line-height: 1;
 }
 
-/* --------------------------------- Panel -------------------------------- */
 section[data-testid="stSidebar"] {
   background: var(--surface); border-right: 1px solid var(--line);
   width: var(--panel-w) !important; min-width: var(--panel-w) !important;
@@ -1014,11 +931,7 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0 !impor
 section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
   padding-bottom: 24px !important;
 }
-/* Medido en el navegador: en los contenedores de Streamlit el margen SUPERIOR
-   de un hijo NO cuenta para la altura de la caja (se escapa), mientras que el
-   padding del contenedor si. Usar margin-top era lo que hacia que el texto se
-   saliera y se montara sobre el widget siguiente. Todo el ritmo vertical del
-   panel se define por tanto con padding del contenedor. */
+
 section[data-testid="stSidebar"] [data-testid="stElementContainer"] {
   margin: 0; flex-shrink: 0 !important;
 }
@@ -1060,7 +973,6 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"]
 }
 .stApp .hn-algo b { color: var(--text-2); font-weight: 700; }
 
-/* -------------------------------- Controles ----------------------------- */
 .stApp div[data-baseweb="select"] > div {
   background: var(--surface) !important;
   border: 1px solid var(--line) !important;
@@ -1092,7 +1004,6 @@ li[role="option"] {
 li[role="option"]:hover, li[role="option"][aria-selected="true"] {
   background: var(--surface-2) !important; color: var(--text) !important;
 }
-/* Chips de destino: en linea, con hueco entre ellos, no apilados a lo alto. */
 .stApp span[data-baseweb="tag"] {
   background: var(--surface) !important;
   border: 1px solid var(--line) !important;
@@ -1135,7 +1046,6 @@ li[role="option"]:hover, li[role="option"][aria-selected="true"] {
 }
 .stApp [data-testid="stHorizontalBlock"] { gap: 10px !important; }
 
-/* ------------------------------ Ficha de ruta --------------------------- */
 .stApp .hn-ficha {
   border: 1px solid var(--line); border-radius: 11px;
   padding: 17px 18px; margin: 0; background: var(--surface);
@@ -1203,7 +1113,6 @@ li[role="option"]:hover, li[role="option"][aria-selected="true"] {
   flex: none;
 }
 
-/* --------------------------- Barra sobre el mapa ------------------------ */
 .stApp .hn-bar {
   display: flex; align-items: center; justify-content: space-between;
   flex-wrap: wrap; gap: 14px;
@@ -1238,7 +1147,6 @@ li[role="option"]:hover, li[role="option"][aria-selected="true"] {
   margin: 0 !important;
 }
 
-/* ---------------------------------- Mapa -------------------------------- */
 [data-testid="stMain"] { --bar-h: 46px; }
 [data-testid="stMain"]:not(:has(.hn-bar)) { --bar-h: 0px; }
 .stApp [data-testid="stIFrame"],
@@ -1253,7 +1161,6 @@ li[role="option"]:hover, li[role="option"][aria-selected="true"] {
   height: calc(100vh - var(--nav-h) - var(--bar-h)) !important;
 }
 
-/* -------------------------------- Alertas ------------------------------- */
 .stApp div[data-testid="stAlert"] {
   background: var(--surface-2); border: 1px solid var(--line);
   border-radius: 9px; box-shadow: none; padding: 11px 13px; margin-top: 14px;
@@ -1269,7 +1176,6 @@ li[role="option"]:hover, li[role="option"][aria-selected="true"] {
 ::-webkit-scrollbar-thumb { background: #D3DADC; border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 
-/* ------------------------------- Responsive ----------------------------- */
 @media (max-width: 1150px) {
   :root { --panel-w: 330px; }
   .stApp .hn-bar-desc { display: none; }
@@ -1302,16 +1208,10 @@ li[role="option"]:hover, li[role="option"][aria-selected="true"] {
 
 def aplicar_estilos():
     variables = ";".join(f"--{k.replace('_', '-')}:{v}" for k, v in C.items())
-    # El @import debe ser la primera regla de la hoja o el navegador lo descarta.
     st.markdown(
         f"<style>{_FUENTES}:root{{{variables}}}{_CSS_APP}</style>",
         unsafe_allow_html=True,
     )
-
-
-# --------------------------------------------------------------------------- #
-# COMPONENTES DE INTERFAZ
-# --------------------------------------------------------------------------- #
 
 
 @st.cache_data(show_spinner=False)
@@ -1363,7 +1263,6 @@ def nota(cantidad, texto):
 
 
 def barra_mapa(titulo, detalle, cifras=None):
-    """Franja fina sobre el mapa con el estado del calculo."""
     celdas = "".join(
         f"<dl><dt>{html_lib.escape(str(k))}</dt><dd>{html_lib.escape(str(v))}</dd></dl>"
         for k, v in (cifras or [])
@@ -1381,7 +1280,6 @@ def barra_mapa(titulo, detalle, cifras=None):
 
 
 def ficha_ruta(titulo, tiempo, pares, secuencia=None):
-    """Tarjeta del panel: tiempo dominante, cifras y secuencia de paradas."""
     titulo = html_lib.escape(str(titulo))
     tiempo = html_lib.escape(str(tiempo))
     celdas = "".join(
@@ -1422,11 +1320,6 @@ def formatear_tiempo(segundos):
     return f"{minutos}m {resto:02d}s"
 
 
-# --------------------------------------------------------------------------- #
-# ESTADO
-# --------------------------------------------------------------------------- #
-
-
 def estado_inicial():
     st.session_state.setdefault(
         "ruta",
@@ -1460,11 +1353,6 @@ def resetear():
     st.session_state["destinos_ids"] = []
 
 
-# --------------------------------------------------------------------------- #
-# APLICACION
-# --------------------------------------------------------------------------- #
-
-
 def main():
     st.set_page_config(
         page_title="HealthNet",
@@ -1478,8 +1366,6 @@ def main():
     with st.spinner("Cargando red vial y puntos de interés..."):
         try:
             G, nodos_df = cargar_datos()
-        # Frontera de UI: cualquier fallo de red, formato o biblioteca debe
-        # convertirse en un mensaje util en vez de exponer un traceback.
         except Exception as exc:  # noqa: BLE001
             st.error(
                 "No se pudieron cargar los datos geográficos. Verifique su conexión "
@@ -1518,7 +1404,6 @@ def main():
     def etiqueta_destino(entity_id):
         return f"{PUNTO[tipo_entidad[entity_id]]} {nombre_entidad[entity_id]}"
 
-    # ------------------------------- Panel ---------------------------------- #
     with st.sidebar:
         paso("01", "Ambulancia de origen")
         origen_id = st.selectbox(
@@ -1551,8 +1436,6 @@ def main():
 
         paso("03", "Cálculo de ruta")
         hay_origen = origen_id != SIN_ASIGNAR
-        # Se resalta el boton del modo activo; antes "Ruta simple" iba fija en
-        # primario y parecia que se activaba la opcion equivocada.
         modo = st.session_state["ruta"]["tipo"]
         col_a, col_b = st.columns(2, gap="small")
         btn_simple = col_a.button(
@@ -1577,7 +1460,6 @@ def main():
             unsafe_allow_html=True,
         )
 
-        # ----------------------------- Acciones ----------------------------- #
         if btn_simple:
             if not hay_origen or not destinos_sel:
                 st.error("Seleccione una ambulancia de origen y al menos un destino.")
@@ -1656,7 +1538,6 @@ def main():
                         + (f" Destinos afectados: {detalle}." if detalle else "")
                     )
 
-        # ----------------------------- Resultado ---------------------------- #
         estado = st.session_state["ruta"]
         if estado["tipo"] == "simple":
             ficha_ruta(
@@ -1692,7 +1573,6 @@ def main():
             on_click=resetear,
         )
 
-    # --------------------------- Area principal ----------------------------- #
     estado = st.session_state["ruta"]
 
     if estado["tipo"] == "simple":
@@ -1713,7 +1593,6 @@ def main():
                 ("Paradas", f"{max(len(estado['orden']) - 1, 0)}"),
             ],
         )
-    # En reposo no se dibuja barra de estado: el mapa ocupa toda el area.
 
     if st.session_state["mapa"] is None:
         with st.spinner("Trazando mapa..."):
