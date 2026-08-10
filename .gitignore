@@ -9,8 +9,18 @@ cache/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
+.coverage.*
 htmlcov/
+*.log
+
+# Datos y almacenes locales
+*.pkl
+*.db
+*.sqlite
+*.sqlite3
 
 # Entornos virtuales
 .venv/
@@ -21,3 +31,16 @@ env/
 .env
 .env.*
 .streamlit/secrets.toml
+credentials*.json
+service-account*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Archivos del sistema, IDE y trabajo temporal
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.pr-body.md
