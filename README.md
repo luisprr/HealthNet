@@ -67,17 +67,28 @@ La aplicación queda disponible normalmente en `http://localhost:8501`.
 
 ## Datos y caché
 
-La primera ejecución descarga la red de conducción y los centros médicos desde
-OpenStreetMap. HealthNet conserva durante siete días:
+HealthNet **no descarga nada al arrancar**. Los datos viajan versionados en
+`data/`, de modo que el despliegue funciona en entornos sin salida a Overpass
+(Streamlit Community Cloud rechaza esa conexión):
 
-- `.cache/healthnet.graphml`: red vial procesada.
-- `.cache/entidades.json`: hospitales, clínicas y entidades simuladas.
-- `.cache/metadata.json`: versión, parámetros y fecha de creación.
+- `data/red_vial.graphml`: red vial procesada.
+- `data/entidades.json`: hospitales, clínicas y entidades simuladas.
+- `data/manifiesto.json`: firma de configuración y checksums SHA-256.
 
-El metadata incluye el lugar, cantidades simuladas, semilla y configuración de
-red. Si cualquiera cambia, el caché se invalida. GraphML y JSON evitan cargar
-objetos ejecutables mediante `pickle`. La red se restringe al mayor componente
-fuertemente conectado para garantizar rutas entre sus nodos.
+El orden de carga es `data/` → `.cache/` → descarga de OpenStreetMap. El
+snapshot no caduca; el caché local sí, a los siete días.
+
+Para regenerarlo tras cambiar `PLACE_NAME`, las cantidades o la semilla:
+
+```bash
+python scripts/build_dataset.py              # descarga de OpenStreetMap
+python scripts/build_dataset.py --desde-cache  # reutiliza .cache/ local
+```
+
+La firma incluye lugar, cantidades simuladas, semilla y configuración de red: si
+alguna cambia, el snapshot deja de considerarse válido. GraphML y JSON evitan
+cargar objetos ejecutables mediante `pickle`. La red se restringe al mayor
+componente fuertemente conectado para garantizar rutas entre sus nodos.
 
 Los nombres procedentes de OpenStreetMap se escapan antes de insertarse en HTML.
 
@@ -95,6 +106,14 @@ SEED = 7
 La paleta compartida por la interfaz y el mapa se encuentra en el diccionario
 `C`. La configuración nativa de Streamlit está en `.streamlit/config.toml` y
 debe mantenerse coordinada con esa paleta.
+
+### Idiomas
+
+La interfaz está en español e inglés, con selector al pie del panel. Las
+cadenas viven en el diccionario `TEXTOS` y se leen con `t("clave")`; añadir un
+idioma es añadir una entrada más. Los nombres de pacientes y ambulancias son
+sintéticos y se traducen; los de hospitales y clínicas vienen de OpenStreetMap y
+se conservan tal cual.
 
 ## Algoritmos
 
@@ -130,6 +149,8 @@ GitHub Actions ejecuta estas validaciones en `main`, `develop` y pull requests.
 HealthNet/
 ├── .github/workflows/tests.yml
 ├── .streamlit/config.toml
+├── data/                  # snapshot versionado que usa el despliegue
+├── scripts/build_dataset.py
 ├── tests/
 ├── app.py
 ├── HealthNetLogo.png

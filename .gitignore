@@ -3,7 +3,7 @@ mapa_base.html
 ruta_simple_emergencia.html
 ruta_multiple_emergencia.html
 
-# Caches
+# Caches (el snapshot de data/ SI se versiona: es la fuente en despliegue)
 .cache/
 cache/
 __pycache__/
