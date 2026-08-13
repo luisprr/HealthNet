@@ -115,21 +115,12 @@ TEXTOS = {
         "hint_simple_val": "1 destino",
         "hint_multiple": "Múltiple:",
         "hint_multiple_val": "2 o más destinos",
-        "ficha_simple": "Ruta simple calculada",
-        "ficha_multiple": "Ruta múltiple optimizada",
         "tiempo_estimado": "tiempo estimado",
-        "tiempo_total": "Tiempo total",
         "secuencia": "Secuencia",
         "origen": "Origen",
         "parada": "Parada {n}",
         "destinos": "Destinos",
         "paradas": "Paradas",
-        "tramos": "Tramos",
-        "algoritmo": "Algoritmo",
-        "desc_simple": "Camino de menor tiempo \u00b7 Dijkstra sobre tiempos de viaje",
-        "desc_multiple": "Vecino más cercano + optimización 2-opt",
-        "err_origen_destino": "Seleccione una ambulancia de origen y al menos un destino.",
-        "err_origen_dos": "Se requiere una ambulancia de origen y al menos dos destinos.",
         "err_sin_trayecto": "No existe un trayecto viable entre esos puntos.",
         "err_afectados": "Destinos afectados: {detalle}.",
         "err_y_mas": "y {n} más",
@@ -181,21 +172,12 @@ TEXTOS = {
         "hint_simple_val": "1 destination",
         "hint_multiple": "Multi-stop:",
         "hint_multiple_val": "2 or more destinations",
-        "ficha_simple": "Single route computed",
-        "ficha_multiple": "Multi-stop route optimised",
         "tiempo_estimado": "estimated time",
-        "tiempo_total": "Total time",
         "secuencia": "Sequence",
         "origen": "Origin",
         "parada": "Stop {n}",
         "destinos": "Destinations",
         "paradas": "Stops",
-        "tramos": "Segments",
-        "algoritmo": "Algorithm",
-        "desc_simple": "Fastest path \u00b7 Dijkstra over travel times",
-        "desc_multiple": "Nearest neighbour + 2-opt optimisation",
-        "err_origen_destino": "Select an origin ambulance and at least one destination.",
-        "err_origen_dos": "An origin ambulance and at least two destinations are required.",
         "err_sin_trayecto": "There is no viable path between those points.",
         "err_afectados": "Affected destinations: {detalle}.",
         "err_y_mas": "and {n} more",
@@ -1108,11 +1090,6 @@ html, body { overflow: hidden; }
   display: none !important;
 }
 
-[data-testid="stMain"] [data-testid="stElementContainer"]:has(.hn-bar) {
-  height: var(--bar-h) !important;
-  min-height: var(--bar-h) !important;
-  flex: none !important;
-}
 
 .stApp .hn-top {
   position: fixed; inset: 0 0 auto 0; height: var(--nav-h); z-index: 1000001;
@@ -1336,53 +1313,7 @@ li[role="option"]:hover, li[role="option"][aria-selected="true"] {
   flex: none;
 }
 
-.stApp .hn-bar {
-  display: flex; align-items: center; justify-content: space-between;
-  flex-wrap: wrap; gap: 14px;
-  height: 46px; padding: 0 18px; background: var(--surface);
-  border-bottom: 1px solid var(--line);
-}
-.stApp .hn-bar-l { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.stApp .hn-bar-tit {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-size: 10px !important; font-weight: 700; letter-spacing: .13em;
-  text-transform: uppercase; color: var(--text-2); white-space: nowrap;
-}
-.stApp .hn-bar-tit::before {
-  content: ''; width: 6px; height: 6px; border-radius: 50%;
-  background: var(--ambulancia); flex: none;
-}
-.stApp .hn-bar-sep { width: 1px; height: 15px; background: var(--line); flex: none; }
-.stApp .hn-bar-desc {
-  font-size: 12px !important; color: var(--text-2); font-weight: 300;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.stApp .hn-bar-r { display: flex; align-items: center; gap: 22px; }
-.stApp .hn-bar-r dl {
-  display: flex; align-items: baseline; gap: 9px; margin: 0 !important;
-}
-.stApp .hn-bar-r dt {
-  font-size: 9px !important; font-weight: 700; letter-spacing: .13em;
-  text-transform: uppercase; color: var(--text-3); margin: 0 !important;
-}
-.stApp .hn-bar-r dd {
-  font-size: 14px !important; font-weight: 700; color: var(--text);
-  margin: 0 !important;
-}
 
-[data-testid="stMain"] { --bar-h: 46px; }
-[data-testid="stMain"]:not(:has(.hn-bar)) { --bar-h: 0px; }
-.stApp [data-testid="stIFrame"],
-.stApp [data-testid="stCustomComponentV1"],
-.stApp iframe[title="st.iframe"] {
-  width: 100% !important;
-  height: calc(100vh - var(--nav-h) - var(--bar-h)) !important;
-  min-height: 320px;
-  border: none !important; display: block;
-}
-.stApp [data-testid="stElementContainer"]:has(iframe[title="st.iframe"]) {
-  height: calc(100vh - var(--nav-h) - var(--bar-h)) !important;
-}
 
 .stApp div[data-testid="stAlert"] {
   background: var(--surface-2); border: 1px solid var(--line);
@@ -1401,10 +1332,6 @@ li[role="option"]:hover, li[role="option"][aria-selected="true"] {
 
 @media (max-width: 1150px) {
   :root { --panel-w: 330px; }
-  .stApp .hn-bar-desc { display: none; }
-}
-@media (max-width: 820px) {
-  .stApp .hn-bar-sep { display: none; }
 }
 @media (max-width: 720px) {
   :root { --nav-h: 54px; }
@@ -1417,11 +1344,6 @@ li[role="option"]:hover, li[role="option"][aria-selected="true"] {
   .stApp .hn-top { padding: 0 13px; }
   .stApp .hn-word { font-size: 17px !important; }
   .stApp .hn-cifras { gap: 14px; }
-  .stApp .hn-bar { height: 46px; padding: 0 13px; flex-wrap: nowrap; }
-  .stApp .hn-bar-r { gap: 14px; }
-}
-@media (max-width: 480px) {
-  .stApp .hn-bar-r { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
@@ -1520,11 +1442,67 @@ section[data-testid="stSidebar"]
   background: var(--surface-2); color: var(--text-3);
   font-size: 11px !important; overflow-x: auto; white-space: pre-wrap;
 }
+
+.stApp [data-testid="stIFrame"],
+.stApp [data-testid="stCustomComponentV1"],
+.stApp iframe[title="st.iframe"] {
+  width: 100% !important;
+  height: calc(100vh - var(--nav-h)) !important;
+  min-height: 320px;
+  border: none !important; display: block;
+}
+.stApp [data-testid="stElementContainer"]:has(iframe[title="st.iframe"]) {
+  height: calc(100vh - var(--nav-h)) !important;
+}
+
+/* Con destinos elegidos, baseweb deja de pintar el placeholder (sus etiquetas
+   estan ocultas) y el buscador parecia una caja vacia. Se repone por CSS. */
+.stApp div[data-baseweb="select"] > div { position: relative; }
+.stApp div[data-baseweb="select"]:has(span[data-baseweb="tag"]):not(:focus-within)
+  > div::after {
+  content: var(--ph-destinos);
+  position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
+  color: var(--text-3); font-size: 13px; pointer-events: none;
+  white-space: nowrap; overflow: hidden; max-width: calc(100% - 70px);
+}
+
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(.hn-chip) {
+  border-radius: 8px; transition: background .12s ease;
+}
+section[data-testid="stSidebar"]
+  [data-testid="stHorizontalBlock"]:has(.hn-chip):hover {
+  background: var(--surface-2);
+}
+.stApp .hn-chip { padding: 7px 0 7px 8px; }
+
+/* Los dos botones de calculo forman un par: el activo va relleno y el otro
+   apagado, para que se lea cual esta seleccionado. */
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]
+  .stButton > button[kind="secondary"] {
+  background: var(--surface-2) !important;
+  color: var(--text-2) !important;
+  border-color: var(--line) !important;
+}
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]
+  .stButton > button[kind="secondary"]:hover {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--text-3) !important;
+}
+.stApp .stButton > button {
+  letter-spacing: .005em;
+  min-height: 44px;
+  border-radius: 10px !important;
+}
+.stApp .stButton > button[kind="primary"] {
+  box-shadow: 0 1px 2px rgba(15,118,110,.25) !important;
+}
 """
 
 
 def aplicar_estilos():
     variables = ";".join(f"--{k.replace('_', '-')}:{v}" for k, v in C.items())
+    variables += f';--ph-destinos:"{t("buscar_destino")}"'
     st.markdown(
         f"<style>{_FUENTES}:root{{{variables}}}{_CSS_APP}</style>",
         unsafe_allow_html=True,
@@ -1606,23 +1584,7 @@ def nota(cantidad, texto):
     )
 
 
-def barra_mapa(titulo, detalle, cifras=None):
-    celdas = "".join(
-        f"<dl><dt>{html_lib.escape(str(k))}</dt><dd>{html_lib.escape(str(v))}</dd></dl>"
-        for k, v in (cifras or [])
-    )
-    separador = '<span class="hn-bar-sep"></span>' if detalle else ""
-    st.markdown(
-        "<div class='hn-bar'>"
-        f"<div class='hn-bar-l'><span class='hn-bar-tit'>"
-        f"{html_lib.escape(str(titulo))}</span>"
-        f"{separador}<span class='hn-bar-desc'>{html_lib.escape(str(detalle))}</span>"
-        f"</div><div class='hn-bar-r'>{celdas}</div></div>",
-        unsafe_allow_html=True,
-    )
-
-
-def ficha_ruta(titulo, tiempo, pares, secuencia=None):
+def ficha_ruta(tiempo, pares, secuencia=None):
     celdas = "".join(
         f"<dl class='hn-par'><dt>{html_lib.escape(str(k))}</dt>"
         f"<dd>{html_lib.escape(str(v))}</dd></dl>"
@@ -1647,8 +1609,7 @@ def ficha_ruta(titulo, tiempo, pares, secuencia=None):
         )
 
     st.markdown(
-        f"<div class='hn-ficha'><div class='hn-ficha-tit'>"
-        f"{html_lib.escape(str(titulo))}</div>"
+        "<div class='hn-ficha'>"
         f"<div class='hn-reloj'><strong>{html_lib.escape(str(tiempo))}</strong>"
         f"<span>{html_lib.escape(t('tiempo_estimado'))}</span></div>"
         f"<div class='hn-pares'>{celdas}</div>{filas}</div>",
@@ -1849,7 +1810,7 @@ def main():
             unsafe_allow_html=True,
         )
 
-        if btn_simple:
+        if btn_simple and destinos_sel:
             destino_id = destinos_sel[0]
             src = int(nodo_entidad[origen_id])
             dst = int(nodo_entidad[destino_id])
@@ -1876,7 +1837,7 @@ def main():
                 st.session_state["mapa"] = None
                 st.rerun()
 
-        if btn_multiple:
+        if btn_multiple and len(destinos_sel) >= 2:
             src = int(nodo_entidad[origen_id])
             objetivos = [int(nodo_entidad[eid]) for eid in destinos_sel]
             resultado = calcular_ruta_tsp(G, src, objetivos)
@@ -1914,19 +1875,14 @@ def main():
         estado = st.session_state["ruta"]
         if estado["tipo"] == "simple":
             ficha_ruta(
-                t("ficha_simple"),
                 formatear_tiempo(estado["tiempo"]),
-                [(t("destinos"), "1"), (t("algoritmo"), "Dijkstra")],
+                [(t("destinos"), "1")],
                 secuencia=[nombre_entidad[eid] for eid in estado["paradas_ids"]],
             )
         elif estado["tipo"] == "multiple":
             ficha_ruta(
-                t("ficha_multiple"),
                 formatear_tiempo(estado["tiempo"]),
-                [
-                    (t("paradas"), f"{max(len(estado['orden']) - 1, 0)}"),
-                    (t("algoritmo"), "2-opt"),
-                ],
+                [(t("paradas"), f"{max(len(estado['orden']) - 1, 0)}")],
                 secuencia=[nombre_entidad[eid] for eid in estado["paradas_ids"]],
             )
 
@@ -1951,32 +1907,12 @@ def main():
             "idioma",
             options=IDIOMAS,
             format_func=str.upper,
-            default=idioma_actual(),
             key="idioma",
             label_visibility="collapsed",
             on_change=cambiar_idioma,
         )
 
     estado = st.session_state["ruta"]
-
-    if estado["tipo"] == "simple":
-        barra_mapa(
-            t("ficha_simple"),
-            t("desc_simple"),
-            [
-                (t("tiempo_total"), formatear_tiempo(estado["tiempo"])),
-                (t("tramos"), f"{len(estado['nodos']) - 1}"),
-            ],
-        )
-    elif estado["tipo"] == "multiple":
-        barra_mapa(
-            t("ficha_multiple"),
-            t("desc_multiple"),
-            [
-                (t("tiempo_total"), formatear_tiempo(estado["tiempo"])),
-                (t("paradas"), f"{max(len(estado['orden']) - 1, 0)}"),
-            ],
-        )
 
     if st.session_state["mapa"] is None:
         with st.spinner(t("trazando_mapa")):
