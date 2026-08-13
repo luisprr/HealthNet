@@ -1,0 +1,23 @@
+{
+  "signature": {
+    "version": 2,
+    "lugar": "Miraflores, Lima, Peru",
+    "poi_tags": {
+      "amenity": [
+        "hospital",
+        "clinic"
+      ]
+    },
+    "pacientes": 200,
+    "ambulancias": 40,
+    "seed": 7,
+    "network_type": "drive",
+    "strong_component": true
+  },
+  "generated_at": "2026-08-13T17:43:05+00:00",
+  "source": "cache local",
+  "checksums": {
+    "red_vial.graphml": "69f64cd1fad95c434e1cfe29295bec34fb7866fb2333cfa5b7872d80548a7c8f",
+    "entidades.json": "716d6b3f0badb0e4ae5f104c231dfc4539cd074ce4f57d6ac939b97007f3d248"
+  }
+}

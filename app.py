@@ -33,6 +33,11 @@ SIN_ASIGNAR = "Sin asignar"
 
 BASE_DIR = Path(__file__).resolve().parent
 LOGO_PATH = BASE_DIR / "HealthNetLogo.png"
+DATA_DIR = BASE_DIR / "data"
+DATA_GRAPH_FILE = DATA_DIR / "red_vial.graphml"
+DATA_ENTITIES_FILE = DATA_DIR / "entidades.json"
+DATA_MANIFEST_FILE = DATA_DIR / "manifiesto.json"
+
 CACHE_DIR = BASE_DIR / ".cache"
 CACHE_GRAPH_FILE = CACHE_DIR / "healthnet.graphml"
 CACHE_ENTITIES_FILE = CACHE_DIR / "entidades.json"
@@ -82,16 +87,177 @@ ETIQUETAS = {
     "ambulancia": "Ambulancia",
 }
 
-PLURALES = {
-    "hospital": "Hospitales",
-    "clinic": "Clínicas",
-    "paciente": "Pacientes",
-    "ambulancia": "Ambulancias",
+TIPOS_DESTINO = ("hospital", "clinic", "paciente")
+
+IDIOMAS = ("es", "en")
+IDIOMA_POR_DEFECTO = "es"
+
+TEXTOS = {
+    "es": {
+        "nodos": "Nodos",
+        "aristas": "Aristas",
+        "paso_origen": "Ambulancia de origen",
+        "paso_destinos": "Puntos de destino",
+        "paso_calculo": "Cálculo de ruta",
+        "sin_asignar": "Sin asignar",
+        "buscar_destino": "Buscar hospital, clínica o paciente",
+        "unidades_disponibles": "unidades disponibles en la red",
+        "puntos_disponibles": "puntos disponibles",
+        "destino_seleccionado": "destino seleccionado",
+        "destinos_seleccionados": "destinos seleccionados",
+        "quitar_destino": "Quitar {nombre}",
+        "btn_simple": "Ruta simple",
+        "btn_multiple": "Ruta múltiple",
+        "btn_reset": "Resetear sistema",
+        "ayuda_simple": "Requiere una ambulancia de origen y al menos un destino.",
+        "ayuda_multiple": "Requiere una ambulancia de origen y al menos dos destinos.",
+        "hint_simple": "Simple:",
+        "hint_simple_val": "1 destino",
+        "hint_multiple": "Múltiple:",
+        "hint_multiple_val": "2 o más destinos",
+        "ficha_simple": "Ruta simple calculada",
+        "ficha_multiple": "Ruta múltiple optimizada",
+        "tiempo_estimado": "tiempo estimado",
+        "tiempo_total": "Tiempo total",
+        "secuencia": "Secuencia",
+        "origen": "Origen",
+        "parada": "Parada {n}",
+        "destinos": "Destinos",
+        "paradas": "Paradas",
+        "tramos": "Tramos",
+        "algoritmo": "Algoritmo",
+        "desc_simple": "Camino de menor tiempo \u00b7 Dijkstra sobre tiempos de viaje",
+        "desc_multiple": "Vecino más cercano + optimización 2-opt",
+        "err_origen_destino": "Seleccione una ambulancia de origen y al menos un destino.",
+        "err_origen_dos": "Se requiere una ambulancia de origen y al menos dos destinos.",
+        "err_sin_trayecto": "No existe un trayecto viable entre esos puntos.",
+        "err_afectados": "Destinos afectados: {detalle}.",
+        "err_y_mas": "y {n} más",
+        "aviso_multiples": (
+            "Se indicaron {total} destinos: la ruta simple solo cubre el primero "
+            "({destino}). Use Ruta múltiple para cubrirlos todos."
+        ),
+        "cargando_titulo": "Preparando la red vial",
+        "cargando_detalle": "Cargando calles, hospitales y unidades del distrito",
+        "trazando_mapa": "Trazando mapa...",
+        "err_datos_titulo": "No se pudieron cargar los datos geográficos",
+        "err_datos_ayuda": (
+            "La aplicación usa un snapshot incluido en el repositorio. Si falta, "
+            "regenérelo con: python scripts/build_dataset.py"
+        ),
+        "capas": "Capas",
+        "leyenda": "Leyenda",
+        "ruta_emergencia": "Ruta de emergencia",
+        "mi_ubicacion": "Mi ubicación",
+        "pantalla_completa": "Pantalla completa",
+        "tipo_hospital": "Hospital",
+        "tipo_clinic": "Clínica",
+        "tipo_paciente": "Paciente",
+        "tipo_ambulancia": "Ambulancia",
+        "tipos_hospital": "Hospitales",
+        "tipos_clinic": "Clínicas",
+        "tipos_paciente": "Pacientes",
+        "tipos_ambulancia": "Ambulancias",
+    },
+    "en": {
+        "nodos": "Nodes",
+        "aristas": "Edges",
+        "paso_origen": "Origin ambulance",
+        "paso_destinos": "Destination points",
+        "paso_calculo": "Route calculation",
+        "sin_asignar": "Unassigned",
+        "buscar_destino": "Search hospital, clinic or patient",
+        "unidades_disponibles": "units available on the network",
+        "puntos_disponibles": "points available",
+        "destino_seleccionado": "destination selected",
+        "destinos_seleccionados": "destinations selected",
+        "quitar_destino": "Remove {nombre}",
+        "btn_simple": "Single route",
+        "btn_multiple": "Multi-stop route",
+        "btn_reset": "Reset system",
+        "ayuda_simple": "Requires an origin ambulance and at least one destination.",
+        "ayuda_multiple": "Requires an origin ambulance and at least two destinations.",
+        "hint_simple": "Single:",
+        "hint_simple_val": "1 destination",
+        "hint_multiple": "Multi-stop:",
+        "hint_multiple_val": "2 or more destinations",
+        "ficha_simple": "Single route computed",
+        "ficha_multiple": "Multi-stop route optimised",
+        "tiempo_estimado": "estimated time",
+        "tiempo_total": "Total time",
+        "secuencia": "Sequence",
+        "origen": "Origin",
+        "parada": "Stop {n}",
+        "destinos": "Destinations",
+        "paradas": "Stops",
+        "tramos": "Segments",
+        "algoritmo": "Algorithm",
+        "desc_simple": "Fastest path \u00b7 Dijkstra over travel times",
+        "desc_multiple": "Nearest neighbour + 2-opt optimisation",
+        "err_origen_destino": "Select an origin ambulance and at least one destination.",
+        "err_origen_dos": "An origin ambulance and at least two destinations are required.",
+        "err_sin_trayecto": "There is no viable path between those points.",
+        "err_afectados": "Affected destinations: {detalle}.",
+        "err_y_mas": "and {n} more",
+        "aviso_multiples": (
+            "{total} destinations were given: the single route only covers the "
+            "first one ({destino}). Use Multi-stop route to cover them all."
+        ),
+        "cargando_titulo": "Preparing the road network",
+        "cargando_detalle": "Loading streets, hospitals and units in the district",
+        "trazando_mapa": "Drawing map...",
+        "err_datos_titulo": "Geographic data could not be loaded",
+        "err_datos_ayuda": (
+            "The app uses a snapshot bundled in the repository. If it is missing, "
+            "regenerate it with: python scripts/build_dataset.py"
+        ),
+        "capas": "Layers",
+        "leyenda": "Legend",
+        "ruta_emergencia": "Emergency route",
+        "mi_ubicacion": "My location",
+        "pantalla_completa": "Fullscreen",
+        "tipo_hospital": "Hospital",
+        "tipo_clinic": "Clinic",
+        "tipo_paciente": "Patient",
+        "tipo_ambulancia": "Ambulance",
+        "tipos_hospital": "Hospitals",
+        "tipos_clinic": "Clinics",
+        "tipos_paciente": "Patients",
+        "tipos_ambulancia": "Ambulances",
+    },
 }
 
-PUNTO = {"hospital": "●", "clinic": "◆", "paciente": "○"}
 
-TIPOS_DESTINO = ("hospital", "clinic", "paciente")
+def idioma_actual():
+    idioma = st.session_state.get("idioma", IDIOMA_POR_DEFECTO)
+    return idioma if idioma in TEXTOS else IDIOMA_POR_DEFECTO
+
+
+def t(clave, **kwargs):
+    textos = TEXTOS[idioma_actual()]
+    plantilla = textos.get(clave) or TEXTOS[IDIOMA_POR_DEFECTO].get(clave, clave)
+    return plantilla.format(**kwargs) if kwargs else plantilla
+
+
+def etiqueta_tipo(tipo):
+    return t(f"tipo_{tipo}")
+
+
+def plural_tipo(tipo):
+    return t(f"tipos_{tipo}")
+
+
+def nombre_mostrado(entity_id, nombre_guardado):
+    """Traduce solo los nombres sinteticos.
+
+    Pacientes y ambulancias se generan con un contador, asi que su nombre se
+    reconstruye en el idioma activo. Los hospitales y clinicas vienen de
+    OpenStreetMap y conservan su nombre real.
+    """
+    tipo, separador, numero = str(entity_id).partition(":")
+    if separador and tipo in ("paciente", "ambulancia") and numero.isdigit():
+        return f"{etiqueta_tipo(tipo)} {numero}"
+    return nombre_guardado
 
 
 def _construir_grafo(lugar):
@@ -271,6 +437,42 @@ def _sha256(ruta):
     return resumen.hexdigest()
 
 
+def _leer_dataset(archivo_grafo, archivo_entidades):
+    G = ox.io.load_graphml(archivo_grafo)
+    df = pd.read_json(archivo_entidades, orient="table")
+    df["node_id"] = df["node_id"].astype("int64")
+    _validar_datos(G, df)
+    return G, df
+
+
+def _cargar_snapshot():
+    """Datos versionados en data/, sin caducidad.
+
+    Es la unica fuente disponible en despliegues sin salida a Overpass, asi que
+    no se le aplica TTL: se regenera a proposito con scripts/build_dataset.py.
+    """
+    archivos = (DATA_GRAPH_FILE, DATA_ENTITIES_FILE, DATA_MANIFEST_FILE)
+    if not all(archivo.exists() for archivo in archivos):
+        return None
+    try:
+        with DATA_MANIFEST_FILE.open("r", encoding="utf-8") as archivo:
+            manifiesto = json.load(archivo)
+        if manifiesto.get("signature") != _firma_cache():
+            LOGGER.warning(
+                "El snapshot de data/ no corresponde a la configuracion actual."
+            )
+            return None
+        if manifiesto.get("checksums", {}) != {
+            DATA_GRAPH_FILE.name: _sha256(DATA_GRAPH_FILE),
+            DATA_ENTITIES_FILE.name: _sha256(DATA_ENTITIES_FILE),
+        }:
+            raise ValueError("El snapshot no supero la verificacion SHA-256.")
+        return _leer_dataset(DATA_GRAPH_FILE, DATA_ENTITIES_FILE)
+    except Exception:
+        LOGGER.warning("El snapshot de data/ no es utilizable.", exc_info=True)
+        return None
+
+
 def _cargar_cache():
     archivos = (CACHE_GRAPH_FILE, CACHE_ENTITIES_FILE, CACHE_META_FILE)
     if not all(archivo.exists() for archivo in archivos):
@@ -280,23 +482,17 @@ def _cargar_cache():
             metadata = json.load(archivo)
         if metadata.get("signature") != _firma_cache():
             return None
-        creado = float(metadata["created_at"])
-        if time.time() - creado > CACHE_TTL_SECONDS:
+        if time.time() - float(metadata["created_at"]) > CACHE_TTL_SECONDS:
             LOGGER.info("El cache geografico expiro y se actualizara.")
             return None
-        checksums = metadata.get("checksums", {})
-        if checksums != {
+        if metadata.get("checksums", {}) != {
             CACHE_GRAPH_FILE.name: _sha256(CACHE_GRAPH_FILE),
             CACHE_ENTITIES_FILE.name: _sha256(CACHE_ENTITIES_FILE),
         }:
             raise ValueError(
                 "Los archivos del cache no superaron la verificacion SHA-256."
             )
-        G = ox.io.load_graphml(CACHE_GRAPH_FILE)
-        df = pd.read_json(CACHE_ENTITIES_FILE, orient="table")
-        df["node_id"] = df["node_id"].astype("int64")
-        _validar_datos(G, df)
-        return G, df
+        return _leer_dataset(CACHE_GRAPH_FILE, CACHE_ENTITIES_FILE)
     except Exception:
         LOGGER.warning(
             "El cache geografico no es valido; se regenerara.", exc_info=True
@@ -357,9 +553,10 @@ def _guardar_cache(G, df):
 
 @st.cache_resource(show_spinner=False, ttl=CACHE_TTL_SECONDS)
 def cargar_datos():
-    guardado = _cargar_cache()
-    if guardado is not None:
-        return guardado
+    for fuente in (_cargar_snapshot, _cargar_cache):
+        guardado = fuente()
+        if guardado is not None:
+            return guardado
 
     G, df = cargar_y_procesar_datos(PLACE_NAME)
     try:
@@ -544,23 +741,11 @@ _CSS_MAPA = """
 .leaflet-container { background: LIENZO; }
 .leaflet-div-icon { background: transparent; border: none; }
 
-.mk-inst {
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 7px; color: #fff; font-weight: 700; line-height: 1;
-  box-shadow: 0 1px 3px rgba(27,36,38,.28);
+.mk {
+  line-height: 0;
+  filter: drop-shadow(0 1px 2px rgba(27,36,38,.32));
 }
-.mk-parada {
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 50%; background: #fff; border: 2px solid RUTA;
-  color: RUTA; font-weight: 700; line-height: 1;
-  box-shadow: 0 1px 4px rgba(27,36,38,.25);
-}
-.mk-origen {
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 50%; background: AMBULANCIA; border: 2px solid #fff;
-  color: #fff; font-weight: 700; line-height: 1;
-  box-shadow: 0 1px 4px rgba(27,36,38,.3);
-}
+.mk svg { display: block; }
 
 .leaflet-popup-content-wrapper {
   background: #fff; color: TEXT; border: 1px solid LINE;
@@ -594,7 +779,7 @@ _CSS_MAPA = """
 
 .leaflet-control-layers-expanded { padding: 11px 13px 11px 11px; }
 .leaflet-control-layers-list::before {
-  content: 'Capas'; display: block;
+  content: 'TITULOCAPAS'; display: block;
   font-size: 9.5px; font-weight: 700; letter-spacing: .12em;
   text-transform: uppercase; color: TEXT3; margin: 0 0 8px 2px;
 }
@@ -630,14 +815,8 @@ _CSS_MAPA = """
   display: block; font-size: 9.5px; font-weight: 700; letter-spacing: .12em;
   text-transform: uppercase; color: TEXT3; margin-bottom: 7px;
 }
-.hn-leyenda i {
-  width: 8px; height: 8px; border-radius: 50%;
-  display: inline-block; margin-right: 9px; vertical-align: middle;
-}
-.hn-leyenda .barra {
-  width: 16px; height: 3px; border-radius: 2px; background: RUTA;
-  display: inline-block; margin-right: 9px; vertical-align: middle;
-}
+.hn-leyenda div { display: flex; align-items: center; gap: 9px; }
+.hn-leyenda svg { flex: none; }
 @media (max-width: 640px) { .hn-leyenda { display: none; } }
 </style>
 """
@@ -650,6 +829,7 @@ def _rgb(hexadecimal):
 
 def _css_mapa():
     reemplazos = {
+        "TITULOCAPAS": t("capas"),
         "LINESOFT": C["line_soft"],
         "LINE": C["line"],
         "LIENZO": C["lienzo"],
@@ -668,21 +848,56 @@ def _css_mapa():
     return css
 
 
-def _icono(clase, contenido, tam, fuente, extra=""):
+def svg_marca(tipo, tam=12):
+    """Icono del tipo de entidad, con la misma forma que en el mapa."""
+    color = COLORES[tipo]
+    if tipo in ("hospital", "clinic"):
+        return (
+            f'<svg width="{tam}" height="{tam}" viewBox="0 0 24 24" '
+            'role="img" aria-hidden="true">'
+            f'<rect x="1" y="1" width="22" height="22" rx="7" fill="{color}"/>'
+            '<path d="M10.3 5.4h3.4v4.9h4.9v3.4h-4.9v4.9h-3.4v-4.9H5.4v-3.4h4.9z" '
+            'fill="#fff"/></svg>'
+        )
+    radio = 9 if tipo == "ambulancia" else 7
+    return (
+        f'<svg width="{tam}" height="{tam}" viewBox="0 0 24 24" '
+        'role="img" aria-hidden="true">'
+        f'<circle cx="12" cy="12" r="{radio}" fill="{color}"/></svg>'
+    )
+
+
+def _svg_insignia(texto, relleno, borde, color_texto, tam):
+    return (
+        f'<svg width="{tam}" height="{tam}" viewBox="0 0 24 24" aria-hidden="true">'
+        f'<circle cx="12" cy="12" r="10.4" fill="{relleno}" stroke="{borde}" '
+        'stroke-width="2"/>'
+        f'<text x="12" y="12" text-anchor="middle" dominant-baseline="central" '
+        f'font-size="10" font-weight="700" fill="{color_texto}" '
+        f'font-family="Merriweather, Georgia, serif">{texto}</text></svg>'
+    )
+
+
+def _svg_linea(color, ancho=16, alto=12):
+    return (
+        f'<svg width="{ancho}" height="{alto}" viewBox="0 0 16 12" aria-hidden="true">'
+        f'<line x1="1" y1="6" x2="15" y2="6" stroke="{color}" stroke-width="2.6" '
+        'stroke-linecap="round"/></svg>'
+    )
+
+
+def _icono(svg, tam):
     return folium.DivIcon(
         icon_size=(tam, tam),
         icon_anchor=(tam // 2, tam // 2),
         popup_anchor=(0, -tam // 2 - 2),
-        html=(
-            f'<div class="{clase}" style="width:{tam}px;height:{tam}px;'
-            f'font-size:{fuente}px;{extra}">{contenido}</div>'
-        ),
+        html=f'<div class="mk">{svg}</div>',
     )
 
 
 def _popup(nombre, tipo, rol=""):
     nombre_seguro = html_lib.escape(str(nombre))
-    tipo_seguro = html_lib.escape(str(ETIQUETAS.get(tipo, tipo)))
+    tipo_seguro = html_lib.escape(etiqueta_tipo(tipo))
     rol_seguro = html_lib.escape(str(rol))
     marca = f'<span class="pop-rol">{rol_seguro}</span>' if rol else ""
     return folium.Popup(
@@ -694,17 +909,21 @@ def _popup(nombre, tipo, rol=""):
 
 def _leyenda():
     filas = "".join(
-        f'<div><i style="background:{COLORES[t]}"></i>{ETIQUETAS[t]}</div>'
-        for t in ("hospital", "clinic", "paciente", "ambulancia")
+        f"<div>{svg_marca(tipo, 12)}{html_lib.escape(etiqueta_tipo(tipo))}</div>"
+        for tipo in ("hospital", "clinic", "paciente", "ambulancia")
     )
     return (
-        f'<div class="hn-leyenda"><b>Leyenda</b>{filas}'
-        f'<div><span class="barra"></span>Ruta de emergencia</div></div>'
+        f'<div class="hn-leyenda"><b>{html_lib.escape(t("leyenda"))}</b>{filas}'
+        f"<div>{_svg_linea(C['ruta'])}"
+        f"{html_lib.escape(t('ruta_emergencia'))}</div></div>"
     )
 
 
 def _nombre_capa(tipo):
-    return f'<i class="cap-dot" style="background:{COLORES[tipo]}"></i>{PLURALES[tipo]}'
+    return (
+        f'<i class="cap-dot" style="background:{COLORES[tipo]}"></i>'
+        f"{html_lib.escape(plural_tipo(tipo))}"
+    )
 
 
 def _capas_entidades(m, df, paradas):
@@ -717,14 +936,15 @@ def _capas_entidades(m, df, paradas):
             continue
 
         coords = (fila.lat, fila.lon)
-        popup = _popup(fila.nombre, tipo)
+        nombre = nombre_mostrado(fila.entity_id, fila.nombre)
+        popup = _popup(nombre, tipo)
 
         if tipo in ("hospital", "clinic"):
             folium.Marker(
                 coords,
                 popup=popup,
-                tooltip=html_lib.escape(str(fila.nombre)),
-                icon=_icono("mk-inst", "+", 21, 14, f"background:{COLORES[tipo]};"),
+                tooltip=html_lib.escape(str(nombre)),
+                icon=_icono(svg_marca(tipo, 21), 21),
             ).add_to(capa)
         else:
             grande = tipo == "ambulancia"
@@ -737,7 +957,7 @@ def _capas_entidades(m, df, paradas):
                 fill_color=COLORES[tipo],
                 fill_opacity=0.95 if grande else 0.8,
                 popup=popup,
-                tooltip=html_lib.escape(str(fila.nombre)),
+                tooltip=html_lib.escape(str(nombre)),
             ).add_to(capa)
 
     for capa in capas.values():
@@ -745,7 +965,7 @@ def _capas_entidades(m, df, paradas):
 
 
 def _capa_ruta(m, G, ruta, paradas, indice):
-    grupo = folium.FeatureGroup(name="Ruta de emergencia", show=True, control=False)
+    grupo = folium.FeatureGroup(name=t("ruta_emergencia"), show=True, control=False)
 
     traza = geojson_ruta(G, ruta)
     if traza:
@@ -767,7 +987,8 @@ def _capa_ruta(m, G, ruta, paradas, indice):
     vistos = {}
 
     for i, entity_id in enumerate(paradas):
-        nid, nombre, tipo, lat, lon = indice[entity_id]
+        nid, nombre_bruto, tipo, lat, lon = indice[entity_id]
+        nombre = nombre_mostrado(entity_id, nombre_bruto)
         total_nodo = repeticiones[nid]
         posicion = vistos.get(nid, 0)
         vistos[nid] = posicion + 1
@@ -776,9 +997,11 @@ def _capa_ruta(m, G, ruta, paradas, indice):
             lat += 0.000025 * math.cos(angulo)
             lon += 0.000025 * math.sin(angulo) / max(math.cos(math.radians(lat)), 0.2)
         if i == 0:
-            icono, rol = _icono("mk-origen", "A", 24, 11), "Origen"
+            icono = _icono(_svg_insignia("A", C["ambulancia"], "#fff", "#fff", 24), 24)
+            rol = t("origen")
         else:
-            icono, rol = _icono("mk-parada", str(i), 23, 11), f"Parada {i}"
+            icono = _icono(_svg_insignia(str(i), "#fff", C["ruta"], C["ruta"], 23), 23)
+            rol = t("parada", n=i)
         folium.Marker(
             (lat, lon), icon=icono, popup=_popup(nombre, tipo, rol), tooltip=rol
         ).add_to(grupo)
@@ -815,8 +1038,8 @@ def generar_mapa(G, df, ruta=None, paradas=None):
         padding=(18, 18),
     )
 
-    LocateControl(position="topleft", strings={"title": "Mi ubicación"}).add_to(m)
-    Fullscreen(position="topleft", title="Pantalla completa").add_to(m)
+    LocateControl(position="topleft", strings={"title": t("mi_ubicacion")}).add_to(m)
+    Fullscreen(position="topleft", title=t("pantalla_completa")).add_to(m)
     folium.LayerControl(collapsed=False, position="topright").add_to(m)
     m.get_root().html.add_child(folium.Element(_css_mapa() + _leyenda()))
 
@@ -1203,6 +1426,100 @@ li[role="option"]:hover, li[role="option"][aria-selected="true"] {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+.stApp span[data-baseweb="tag"] { display: none !important; }
+
+.stApp .hn-chip {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 7px 0;
+}
+.stApp .hn-chip span {
+  font-size: 12.5px !important; color: var(--text); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.hn-chip) {
+  padding: 0;
+}
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(.hn-chip) {
+  align-items: center; gap: 4px !important;
+}
+.stApp .stButton > button[kind="tertiary"] {
+  min-height: 30px; padding: 0 !important; color: var(--text-3) !important;
+  font-size: 17px !important; font-weight: 400; background: transparent !important;
+  border: none !important;
+}
+.stApp .stButton > button[kind="tertiary"]:hover {
+  color: var(--ruta) !important; background: var(--surface-2) !important;
+}
+
+.stApp .hn-idioma { margin-top: 4px; }
+.stApp [data-testid="stButtonGroup"] button {
+  font-size: 11px !important; font-weight: 700; letter-spacing: .08em;
+  padding: 4px 14px !important; min-height: 28px !important;
+  width: auto !important; border-radius: 7px !important;
+}
+.stApp [data-testid="stButtonGroup"] { gap: 4px; }
+section[data-testid="stSidebar"]
+  [data-testid="stElementContainer"]:has([data-testid="stButtonGroup"]) {
+  padding-top: 14px;
+}
+
+.hn-carga {
+  position: fixed; inset: 0; z-index: 2000000;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+}
+.hn-carga-caja { text-align: center; max-width: 340px; padding: 0 24px; }
+.hn-carga-caja img {
+  width: 56px; height: 56px; object-fit: contain; margin: 0 auto 16px auto;
+  display: block;
+}
+.hn-carga-marca {
+  font-size: 24px !important; font-weight: 900; color: var(--nav-marca);
+  line-height: 1; margin-bottom: 22px;
+}
+.hn-carga-tit {
+  font-size: 13px !important; font-weight: 700; color: var(--text);
+  margin-bottom: 6px;
+}
+.hn-carga-det {
+  font-size: 11.5px !important; color: var(--text-3); font-weight: 300;
+  line-height: 1.55; margin-bottom: 20px;
+}
+.hn-carga-barra {
+  height: 3px; border-radius: 3px; background: var(--line);
+  overflow: hidden; position: relative;
+}
+.hn-carga-barra span {
+  position: absolute; inset: 0 auto 0 0; width: 40%;
+  border-radius: 3px; background: var(--accent);
+  animation: hn-desliz 1.15s ease-in-out infinite;
+}
+@keyframes hn-desliz {
+  0% { left: -40%; } 100% { left: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hn-carga-barra span { animation: none; left: 0; width: 100%; opacity: .55; }
+}
+
+.stApp .hn-fallo {
+  max-width: 560px; margin: 12vh auto 0 auto; padding: 24px 26px;
+  border: 1px solid var(--line); border-top: 3px solid var(--ruta);
+  border-radius: 12px; background: var(--surface);
+}
+.stApp .hn-fallo h1 {
+  font-size: 16px !important; font-weight: 700; color: var(--text);
+  margin: 0 0 10px 0;
+}
+.stApp .hn-fallo p {
+  font-size: 12.5px !important; color: var(--text-2); line-height: 1.6;
+  margin: 0 0 10px 0;
+}
+.stApp .hn-fallo code {
+  display: block; margin-top: 12px; padding: 10px 12px; border-radius: 8px;
+  background: var(--surface-2); color: var(--text-3);
+  font-size: 11px !important; overflow-x: auto; white-space: pre-wrap;
+}
 """
 
 
@@ -1217,26 +1534,55 @@ def aplicar_estilos():
 @st.cache_data(show_spinner=False)
 def logo_base64():
     try:
-        with open(LOGO_PATH, "rb") as f:
-            return base64.b64encode(f.read()).decode()
+        return base64.b64encode(LOGO_PATH.read_bytes()).decode()
     except OSError:
         return None
 
 
+def _img_logo(logo, clase=""):
+    if not logo:
+        return ""
+    atributo = f' class="{clase}"' if clase else ""
+    return f'<img{atributo} src="data:image/png;base64,{logo}" alt="">'
+
+
+def pantalla_carga(logo):
+    return (
+        '<div class="hn-carga"><div class="hn-carga-caja">'
+        f"{_img_logo(logo)}"
+        '<div class="hn-carga-marca">HealthNet</div>'
+        f'<div class="hn-carga-tit">{html_lib.escape(t("cargando_titulo"))}</div>'
+        f'<div class="hn-carga-det">{html_lib.escape(t("cargando_detalle"))}</div>'
+        '<div class="hn-carga-barra"><span></span></div>'
+        "</div></div>"
+    )
+
+
+def pantalla_fallo(detalle):
+    st.markdown(
+        '<div class="hn-fallo">'
+        f"<h1>{html_lib.escape(t('err_datos_titulo'))}</h1>"
+        f"<p>{html_lib.escape(t('err_datos_ayuda'))}</p>"
+        f"<code>{html_lib.escape(str(detalle))}</code></div>",
+        unsafe_allow_html=True,
+    )
+
+
 def barra_superior(logo, n_nodos, n_aristas):
-    img = f'<img src="data:image/png;base64,{logo}" alt="">' if logo else ""
     st.markdown(
         f"""
         <div class="hn-top">
           <div class="hn-brand">
-            {img}
+            {_img_logo(logo)}
             <span class="hn-rule"></span>
             <span class="hn-word">HealthNet</span>
           </div>
           <div class="hn-cifras">
-            <dl class="hn-cifra"><dt>Nodos</dt><dd>{n_nodos}</dd></dl>
+            <dl class="hn-cifra"><dt>{html_lib.escape(t("nodos"))}</dt>
+              <dd>{n_nodos}</dd></dl>
             <span class="hn-rule"></span>
-            <dl class="hn-cifra"><dt>Aristas</dt><dd>{n_aristas}</dd></dl>
+            <dl class="hn-cifra"><dt>{html_lib.escape(t("aristas"))}</dt>
+              <dd>{n_aristas}</dd></dl>
           </div>
         </div>
         """,
@@ -1245,19 +1591,17 @@ def barra_superior(logo, n_nodos, n_aristas):
 
 
 def paso(numero, titulo):
-    numero = html_lib.escape(str(numero))
-    titulo = html_lib.escape(str(titulo))
     st.markdown(
-        f'<div class="hn-paso"><b>{numero}</b><i>·</i>{titulo}</div>',
+        f'<div class="hn-paso"><b>{html_lib.escape(str(numero))}</b><i>\u00b7</i>'
+        f"{html_lib.escape(str(titulo))}</div>",
         unsafe_allow_html=True,
     )
 
 
 def nota(cantidad, texto):
-    cantidad = html_lib.escape(str(cantidad))
-    texto = html_lib.escape(str(texto))
     st.markdown(
-        f'<div class="hn-nota"><b>{cantidad}</b> {texto}</div>',
+        f'<div class="hn-nota"><b>{html_lib.escape(str(cantidad))}</b> '
+        f"{html_lib.escape(str(texto))}</div>",
         unsafe_allow_html=True,
     )
 
@@ -1268,20 +1612,17 @@ def barra_mapa(titulo, detalle, cifras=None):
         for k, v in (cifras or [])
     )
     separador = '<span class="hn-bar-sep"></span>' if detalle else ""
-    titulo = html_lib.escape(str(titulo))
-    detalle = html_lib.escape(str(detalle))
     st.markdown(
         "<div class='hn-bar'>"
-        f"<div class='hn-bar-l'><span class='hn-bar-tit'>{titulo}</span>"
-        f"{separador}<span class='hn-bar-desc'>{detalle}</span></div>"
-        f"<div class='hn-bar-r'>{celdas}</div></div>",
+        f"<div class='hn-bar-l'><span class='hn-bar-tit'>"
+        f"{html_lib.escape(str(titulo))}</span>"
+        f"{separador}<span class='hn-bar-desc'>{html_lib.escape(str(detalle))}</span>"
+        f"</div><div class='hn-bar-r'>{celdas}</div></div>",
         unsafe_allow_html=True,
     )
 
 
 def ficha_ruta(titulo, tiempo, pares, secuencia=None):
-    titulo = html_lib.escape(str(titulo))
-    tiempo = html_lib.escape(str(tiempo))
     celdas = "".join(
         f"<dl class='hn-par'><dt>{html_lib.escape(str(k))}</dt>"
         f"<dd>{html_lib.escape(str(v))}</dd></dl>"
@@ -1294,19 +1635,22 @@ def ficha_ruta(titulo, tiempo, pares, secuencia=None):
         for i, nombre in enumerate(secuencia):
             clase = "hn-fila origen" if i == 0 else "hn-fila"
             marca = "A" if i == 0 else str(i)
-            rol = "Origen" if i == 0 else f"Parada {i}"
-            nombre = html_lib.escape(str(nombre))
+            rol = t("origen") if i == 0 else t("parada", n=i)
             cuerpo += (
                 f"<div class='{clase}'><b>{marca}</b>"
-                f"<span>{nombre}</span><em>{rol}</em></div>"
+                f"<span>{html_lib.escape(str(nombre))}</span>"
+                f"<em>{html_lib.escape(rol)}</em></div>"
             )
         filas = (
-            f"<div class='hn-sec'><div class='hn-sec-tit'>Secuencia</div>{cuerpo}</div>"
+            f"<div class='hn-sec'><div class='hn-sec-tit'>"
+            f"{html_lib.escape(t('secuencia'))}</div>{cuerpo}</div>"
         )
 
     st.markdown(
-        f"<div class='hn-ficha'><div class='hn-ficha-tit'>{titulo}</div>"
-        f"<div class='hn-reloj'><strong>{tiempo}</strong><span>tiempo estimado</span></div>"
+        f"<div class='hn-ficha'><div class='hn-ficha-tit'>"
+        f"{html_lib.escape(str(titulo))}</div>"
+        f"<div class='hn-reloj'><strong>{html_lib.escape(str(tiempo))}</strong>"
+        f"<span>{html_lib.escape(t('tiempo_estimado'))}</span></div>"
         f"<div class='hn-pares'>{celdas}</div>{filas}</div>",
         unsafe_allow_html=True,
     )
@@ -1320,37 +1664,83 @@ def formatear_tiempo(segundos):
     return f"{minutos}m {resto:02d}s"
 
 
+RUTA_VACIA = {
+    "tipo": "base",
+    "nodos": None,
+    "tiempo": None,
+    "orden": None,
+    "paradas_ids": None,
+}
+
+
 def estado_inicial():
-    st.session_state.setdefault(
-        "ruta",
-        {
-            "tipo": "base",
-            "nodos": None,
-            "tiempo": None,
-            "orden": None,
-            "paradas": None,
-            "paradas_ids": None,
-        },
-    )
+    st.session_state.setdefault("ruta", dict(RUTA_VACIA))
     st.session_state.setdefault("mapa", None)
     st.session_state.setdefault("aviso", "")
+    st.session_state.setdefault("idioma", IDIOMA_POR_DEFECTO)
     st.session_state.setdefault("origen_id", SIN_ASIGNAR)
     st.session_state.setdefault("destinos_ids", [])
 
 
 def resetear():
-    st.session_state["ruta"] = {
-        "tipo": "base",
-        "nodos": None,
-        "tiempo": None,
-        "orden": None,
-        "paradas": None,
-        "paradas_ids": None,
-    }
+    st.session_state["ruta"] = dict(RUTA_VACIA)
     st.session_state["aviso"] = ""
     st.session_state["mapa"] = None
     st.session_state["origen_id"] = SIN_ASIGNAR
     st.session_state["destinos_ids"] = []
+
+
+def quitar_destino(entity_id):
+    seleccion = [d for d in st.session_state.get("destinos_ids", []) if d != entity_id]
+    st.session_state["destinos_ids"] = seleccion
+    st.session_state["ruta"] = dict(RUTA_VACIA)
+    st.session_state["aviso"] = ""
+    st.session_state["mapa"] = None
+
+
+def cambiar_idioma():
+    """Traduce el mapa y preserva lo que el usuario ya habia elegido.
+
+    Streamlit deriva la identidad de un widget de sus parametros, etiqueta y
+    placeholder incluidos. Al traducirlos, el selector pasa a ser un widget
+    distinto y nace vacio, asi que su valor se guarda aqui (el callback corre
+    antes del rerun) y se resiembra antes de volver a crearlos.
+    """
+    st.session_state["mapa"] = None
+    st.session_state["traspaso"] = {
+        "origen_id": st.session_state.get("origen_id", SIN_ASIGNAR),
+        "destinos_ids": list(st.session_state.get("destinos_ids", [])),
+    }
+
+
+def _resembrar_seleccion():
+    traspaso = st.session_state.pop("traspaso", None)
+    if traspaso:
+        st.session_state.update(traspaso)
+
+
+def chips_destinos(ids, tipo_entidad, nombre_entidad):
+    """Destinos elegidos, con el icono del tipo y un boton para quitarlos.
+
+    Sustituye a las etiquetas nativas del multiselect (ocultas por CSS), que no
+    admiten un icono por elemento.
+    """
+    for entity_id in ids:
+        nombre = nombre_entidad[entity_id]
+        columna_chip, columna_quitar = st.columns([0.86, 0.14], gap="small")
+        columna_chip.markdown(
+            f"<div class='hn-chip'>{svg_marca(tipo_entidad[entity_id], 13)}"
+            f"<span>{html_lib.escape(str(nombre))}</span></div>",
+            unsafe_allow_html=True,
+        )
+        columna_quitar.button(
+            "\u00d7",
+            key=f"quitar_{entity_id}",
+            type="tertiary",
+            help=t("quitar_destino", nombre=nombre),
+            on_click=quitar_destino,
+            args=(entity_id,),
+        )
 
 
 def main():
@@ -1363,205 +1753,188 @@ def main():
     aplicar_estilos()
     estado_inicial()
 
-    with st.spinner("Cargando red vial y puntos de interés..."):
-        try:
-            G, nodos_df = cargar_datos()
-        except Exception as exc:  # noqa: BLE001
-            st.error(
-                "No se pudieron cargar los datos geográficos. Verifique su conexión "
-                f"a internet y vuelva a intentarlo. Detalle: {exc}"
-            )
-            st.stop()
+    logo = logo_base64()
+    velo = st.empty()
+    velo.markdown(pantalla_carga(logo), unsafe_allow_html=True)
+    try:
+        G, nodos_df = cargar_datos()
+    except Exception as exc:  # noqa: BLE001
+        velo.empty()
+        pantalla_fallo(exc)
+        st.stop()
+    velo.empty()
 
-    barra_superior(logo_base64(), G.number_of_nodes(), G.number_of_edges())
+    barra_superior(logo, G.number_of_nodes(), G.number_of_edges())
 
     entidades = nodos_df.set_index("entity_id", drop=False)
-    nombre_entidad = entidades["nombre"].to_dict()
+    nombre_entidad = {
+        entity_id: nombre_mostrado(entity_id, nombre)
+        for entity_id, nombre in entidades["nombre"].items()
+    }
     nodo_entidad = entidades["node_id"].astype("int64").to_dict()
     tipo_entidad = entidades["tipo"].to_dict()
 
+    def por_nombre(entity_id):
+        return len(nombre_entidad[entity_id]), nombre_entidad[entity_id], entity_id
+
     ambulancias = sorted(
-        nodos_df.loc[nodos_df["tipo"] == "ambulancia", "entity_id"],
-        key=lambda entity_id: (
-            len(nombre_entidad[entity_id]),
-            nombre_entidad[entity_id],
-        ),
+        nodos_df.loc[nodos_df["tipo"] == "ambulancia", "entity_id"], key=por_nombre
     )
-
-    destinos_df = nodos_df[nodos_df["tipo"].isin(TIPOS_DESTINO)]
     destinos_disponibles = sorted(
-        destinos_df["entity_id"],
-        key=lambda entity_id: (
-            len(nombre_entidad[entity_id]),
-            nombre_entidad[entity_id],
-            entity_id,
-        ),
+        nodos_df.loc[nodos_df["tipo"].isin(TIPOS_DESTINO), "entity_id"], key=por_nombre
     )
 
-    def etiqueta_origen(entity_id):
-        return SIN_ASIGNAR if entity_id == SIN_ASIGNAR else nombre_entidad[entity_id]
-
-    def etiqueta_destino(entity_id):
-        return f"{PUNTO[tipo_entidad[entity_id]]} {nombre_entidad[entity_id]}"
+    _resembrar_seleccion()
 
     with st.sidebar:
-        paso("01", "Ambulancia de origen")
+        paso("01", t("paso_origen"))
         origen_id = st.selectbox(
-            "Ambulancia de origen",
+            t("paso_origen"),
             options=[SIN_ASIGNAR] + ambulancias,
-            format_func=etiqueta_origen,
+            format_func=lambda eid: (
+                t("sin_asignar") if eid == SIN_ASIGNAR else nombre_entidad[eid]
+            ),
             label_visibility="collapsed",
             key="origen_id",
         )
-        nota(len(ambulancias), "unidades disponibles en la red")
+        nota(len(ambulancias), t("unidades_disponibles"))
 
-        paso("02", "Puntos de destino")
+        paso("02", t("paso_destinos"))
         destinos_sel = st.multiselect(
-            "Puntos de destino",
+            t("paso_destinos"),
             options=destinos_disponibles,
-            format_func=etiqueta_destino,
-            placeholder="Buscar hospital, clínica o paciente",
+            format_func=lambda eid: nombre_entidad[eid],
+            placeholder=t("buscar_destino"),
             label_visibility="collapsed",
             key="destinos_ids",
         )
         if destinos_sel:
-            plural = (
-                "destino seleccionado"
-                if len(destinos_sel) == 1
-                else "destinos seleccionados"
+            chips_destinos(destinos_sel, tipo_entidad, nombre_entidad)
+            nota(
+                len(destinos_sel),
+                t(
+                    "destino_seleccionado"
+                    if len(destinos_sel) == 1
+                    else "destinos_seleccionados"
+                ),
             )
-            nota(len(destinos_sel), plural)
         else:
-            nota(len(destinos_disponibles), "puntos disponibles")
+            nota(len(destinos_disponibles), t("puntos_disponibles"))
 
-        paso("03", "Cálculo de ruta")
+        paso("03", t("paso_calculo"))
         hay_origen = origen_id != SIN_ASIGNAR
         modo = st.session_state["ruta"]["tipo"]
-        col_a, col_b = st.columns(2, gap="small")
-        btn_simple = col_a.button(
-            "Ruta simple",
+        columna_a, columna_b = st.columns(2, gap="small")
+        btn_simple = columna_a.button(
+            t("btn_simple"),
             key="btn_simple",
             type="primary" if modo == "simple" else "secondary",
             width="stretch",
             disabled=not (hay_origen and destinos_sel),
-            help="Requiere una ambulancia de origen y al menos un destino.",
+            help=t("ayuda_simple"),
         )
-        btn_multiple = col_b.button(
-            "Ruta múltiple",
+        btn_multiple = columna_b.button(
+            t("btn_multiple"),
             key="btn_multiple",
             type="primary" if modo == "multiple" else "secondary",
             width="stretch",
             disabled=not (hay_origen and len(destinos_sel) >= 2),
-            help="Requiere una ambulancia de origen y al menos dos destinos.",
+            help=t("ayuda_multiple"),
         )
         st.markdown(
-            "<div class='hn-algo'><b>Simple:</b> 1 destino<br>"
-            "<b>Múltiple:</b> 2 o más destinos</div>",
+            f"<div class='hn-algo'><b>{html_lib.escape(t('hint_simple'))}</b> "
+            f"{html_lib.escape(t('hint_simple_val'))}<br>"
+            f"<b>{html_lib.escape(t('hint_multiple'))}</b> "
+            f"{html_lib.escape(t('hint_multiple_val'))}</div>",
             unsafe_allow_html=True,
         )
 
         if btn_simple:
-            if not hay_origen or not destinos_sel:
-                st.error("Seleccione una ambulancia de origen y al menos un destino.")
+            destino_id = destinos_sel[0]
+            src = int(nodo_entidad[origen_id])
+            dst = int(nodo_entidad[destino_id])
+            nodos, tiempo = calcular_ruta_optima(G, src, dst)
+            if nodos is None:
+                st.error(t("err_sin_trayecto"))
             else:
-                destino_id = destinos_sel[0]
-                origen_nombre = nombre_entidad[origen_id]
-                destino_nombre = nombre_entidad[destino_id]
-                src, dst = int(nodo_entidad[origen_id]), int(nodo_entidad[destino_id])
-                nodos, tiempo = calcular_ruta_optima(G, src, dst)
-                if nodos is not None:
-                    st.session_state["aviso"] = (
-                        f"Se indicaron {len(destinos_sel)} destinos: la ruta simple "
-                        f"solo cubre el primero ({destino_nombre}). Use Ruta múltiple para "
-                        "cubrirlos todos."
-                        if len(destinos_sel) > 1
-                        else ""
+                st.session_state["aviso"] = (
+                    t(
+                        "aviso_multiples",
+                        total=len(destinos_sel),
+                        destino=nombre_entidad[destino_id],
                     )
-                    st.session_state["ruta"] = {
-                        "tipo": "simple",
-                        "nodos": nodos,
-                        "tiempo": tiempo,
-                        "orden": [src, dst],
-                        "paradas": [origen_nombre, destino_nombre],
-                        "paradas_ids": [origen_id, destino_id],
-                    }
-                    st.session_state["mapa"] = None
-                    st.rerun()
-                else:
-                    st.error("No existe un trayecto viable entre esos puntos.")
+                    if len(destinos_sel) > 1
+                    else ""
+                )
+                st.session_state["ruta"] = {
+                    "tipo": "simple",
+                    "nodos": nodos,
+                    "tiempo": tiempo,
+                    "orden": [src, dst],
+                    "paradas_ids": [origen_id, destino_id],
+                }
+                st.session_state["mapa"] = None
+                st.rerun()
 
         if btn_multiple:
-            if not hay_origen or len(destinos_sel) < 2:
-                st.error(
-                    "Se requiere una ambulancia de origen y al menos dos destinos."
-                )
+            src = int(nodo_entidad[origen_id])
+            objetivos = [int(nodo_entidad[eid]) for eid in destinos_sel]
+            resultado = calcular_ruta_tsp(G, src, objetivos)
+            if resultado["error"] is None:
+                paradas_ids = [
+                    origen_id if indice == 0 else destinos_sel[indice - 1]
+                    for indice in resultado["orden_indices"]
+                ]
+                st.session_state["aviso"] = ""
+                st.session_state["ruta"] = {
+                    "tipo": "multiple",
+                    "nodos": resultado["ruta"],
+                    "tiempo": resultado["tiempo"],
+                    "orden": resultado["orden_nodos"],
+                    "paradas_ids": paradas_ids,
+                }
+                st.session_state["mapa"] = None
+                st.rerun()
             else:
-                src = int(nodo_entidad[origen_id])
-                objetivos = [int(nodo_entidad[entity_id]) for entity_id in destinos_sel]
-                resultado = calcular_ruta_tsp(G, src, objetivos)
-                if resultado["error"] is None:
-                    paradas_ids = [
-                        origen_id if indice == 0 else destinos_sel[indice - 1]
-                        for indice in resultado["orden_indices"]
-                    ]
-                    st.session_state["aviso"] = ""
-                    st.session_state["ruta"] = {
-                        "tipo": "multiple",
-                        "nodos": resultado["ruta"],
-                        "tiempo": resultado["tiempo"],
-                        "orden": resultado["orden_nodos"],
-                        "paradas": [nombre_entidad[eid] for eid in paradas_ids],
-                        "paradas_ids": paradas_ids,
-                    }
-                    st.session_state["mapa"] = None
-                    st.rerun()
-                else:
-                    afectados = [
-                        nombre_entidad[destinos_sel[indice - 1]]
-                        for indice in resultado["no_visitados"]
-                        if 0 < indice <= len(destinos_sel)
-                    ]
-                    detalle = ", ".join(afectados[:5])
-                    if len(afectados) > 5:
-                        detalle += f" y {len(afectados) - 5} más"
-                    st.session_state["ruta"] = {
-                        "tipo": "base",
-                        "nodos": None,
-                        "tiempo": None,
-                        "orden": None,
-                        "paradas": None,
-                        "paradas_ids": None,
-                    }
-                    st.session_state["mapa"] = None
-                    st.error(
-                        f"{resultado['error']}"
-                        + (f" Destinos afectados: {detalle}." if detalle else "")
-                    )
+                afectados = [
+                    nombre_entidad[destinos_sel[indice - 1]]
+                    for indice in resultado["no_visitados"]
+                    if 0 < indice <= len(destinos_sel)
+                ]
+                detalle = ", ".join(afectados[:5])
+                if len(afectados) > 5:
+                    detalle += " " + t("err_y_mas", n=len(afectados) - 5)
+                st.session_state["ruta"] = dict(RUTA_VACIA)
+                st.session_state["mapa"] = None
+                st.error(
+                    resultado["error"]
+                    + (" " + t("err_afectados", detalle=detalle) if detalle else "")
+                )
 
         estado = st.session_state["ruta"]
         if estado["tipo"] == "simple":
             ficha_ruta(
-                "Ruta simple calculada",
+                t("ficha_simple"),
                 formatear_tiempo(estado["tiempo"]),
-                [("Destinos", "1"), ("Algoritmo", "Dijkstra")],
-                secuencia=estado["paradas"],
+                [(t("destinos"), "1"), (t("algoritmo"), "Dijkstra")],
+                secuencia=[nombre_entidad[eid] for eid in estado["paradas_ids"]],
             )
         elif estado["tipo"] == "multiple":
             ficha_ruta(
-                "Ruta múltiple optimizada",
+                t("ficha_multiple"),
                 formatear_tiempo(estado["tiempo"]),
                 [
-                    ("Paradas", f"{max(len(estado['orden']) - 1, 0)}"),
-                    ("Algoritmo", "2-opt"),
+                    (t("paradas"), f"{max(len(estado['orden']) - 1, 0)}"),
+                    (t("algoritmo"), "2-opt"),
                 ],
-                secuencia=estado["paradas"],
+                secuencia=[nombre_entidad[eid] for eid in estado["paradas_ids"]],
             )
 
         if st.session_state["aviso"]:
             st.warning(st.session_state["aviso"])
 
         st.button(
-            "Resetear sistema",
+            t("btn_reset"),
             key="btn_reset",
             type="secondary",
             width="stretch",
@@ -1573,32 +1946,45 @@ def main():
             on_click=resetear,
         )
 
+        st.markdown("<div class='hn-idioma'></div>", unsafe_allow_html=True)
+        st.segmented_control(
+            "idioma",
+            options=IDIOMAS,
+            format_func=str.upper,
+            default=idioma_actual(),
+            key="idioma",
+            label_visibility="collapsed",
+            on_change=cambiar_idioma,
+        )
+
     estado = st.session_state["ruta"]
 
     if estado["tipo"] == "simple":
         barra_mapa(
-            "Ruta simple calculada",
-            "Camino de menor tiempo · Dijkstra sobre tiempos de viaje",
+            t("ficha_simple"),
+            t("desc_simple"),
             [
-                ("Tiempo total", formatear_tiempo(estado["tiempo"])),
-                ("Tramos", f"{len(estado['nodos']) - 1}"),
+                (t("tiempo_total"), formatear_tiempo(estado["tiempo"])),
+                (t("tramos"), f"{len(estado['nodos']) - 1}"),
             ],
         )
     elif estado["tipo"] == "multiple":
         barra_mapa(
-            "Ruta múltiple optimizada",
-            "Vecino más cercano + optimización 2-opt",
+            t("ficha_multiple"),
+            t("desc_multiple"),
             [
-                ("Tiempo total", formatear_tiempo(estado["tiempo"])),
-                ("Paradas", f"{max(len(estado['orden']) - 1, 0)}"),
+                (t("tiempo_total"), formatear_tiempo(estado["tiempo"])),
+                (t("paradas"), f"{max(len(estado['orden']) - 1, 0)}"),
             ],
         )
 
     if st.session_state["mapa"] is None:
-        with st.spinner("Trazando mapa..."):
+        with st.spinner(t("trazando_mapa")):
             if estado["tipo"] == "base":
-                clave_mapa = json.dumps(_firma_cache(), sort_keys=True)
-                st.session_state["mapa"] = mapa_base(G, nodos_df, clave_mapa)
+                clave = json.dumps(
+                    {**_firma_cache(), "idioma": idioma_actual()}, sort_keys=True
+                )
+                st.session_state["mapa"] = mapa_base(G, nodos_df, clave)
             else:
                 st.session_state["mapa"] = generar_mapa(
                     G, nodos_df, estado["nodos"], estado["paradas_ids"]
