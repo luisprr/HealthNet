@@ -105,7 +105,7 @@ class RutasTest(unittest.TestCase):
         self.assertIn("&lt;img", popup)
 
         with patch.object(app.st, "markdown") as markdown:
-            app.ficha_ruta("Ruta", "1m", [], secuencia=["Origen", ataque])
+            app.ficha_ruta("1m", [], secuencia=["Origen", ataque])
         tarjeta = markdown.call_args.args[0]
         self.assertNotIn(ataque, tarjeta)
         self.assertIn("&lt;img", tarjeta)
