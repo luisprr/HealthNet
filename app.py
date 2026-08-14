@@ -97,12 +97,12 @@ TEXTOS = {
         "nodos": "Nodos",
         "aristas": "Aristas",
         "paso_origen": "Ambulancia de origen",
-        "paso_destinos": "Puntos de destino",
+        "paso_destinos": "Destinos",
         "paso_calculo": "Cálculo de ruta",
         "sin_asignar": "Sin asignar",
         "buscar_destino": "Buscar hospital, clínica o paciente",
         "unidades_disponibles": "unidades disponibles en la red",
-        "puntos_disponibles": "puntos disponibles",
+        "destinos_disponibles": "destinos disponibles",
         "destino_seleccionado": "destino seleccionado",
         "destinos_seleccionados": "destinos seleccionados",
         "quitar_destino": "Quitar {nombre}",
@@ -154,12 +154,12 @@ TEXTOS = {
         "nodos": "Nodes",
         "aristas": "Edges",
         "paso_origen": "Origin ambulance",
-        "paso_destinos": "Destination points",
+        "paso_destinos": "Destinations",
         "paso_calculo": "Route calculation",
         "sin_asignar": "Unassigned",
         "buscar_destino": "Search hospital, clinic or patient",
         "unidades_disponibles": "units available on the network",
-        "puntos_disponibles": "points available",
+        "destinos_disponibles": "destinations available",
         "destino_seleccionado": "destination selected",
         "destinos_seleccionados": "destinations selected",
         "quitar_destino": "Remove {nombre}",
@@ -1824,7 +1824,7 @@ def main():
                 ),
             )
         else:
-            nota(len(destinos_disponibles), t("puntos_disponibles"))
+            nota(len(destinos_disponibles), t("destinos_disponibles"))
 
         paso("03", t("paso_calculo"))
         hay_origen = origen_id != SIN_ASIGNAR

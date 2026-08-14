@@ -18,13 +18,17 @@ resultado en una interfaz de Streamlit con mapas Folium.
 - Mantiene la identidad de hospitales, clínicas, pacientes y ambulancias aunque
   varias entidades estén ancladas al mismo nodo vial.
 - Muestra capas, popups, leyenda, itinerario numerado y tiempo estimado.
+- Interfaz en español e inglés, con selector en la barra superior.
+- Arranca sin conexión: los datos geográficos viajan versionados en el
+  repositorio.
 - Incluye un tema claro y responsivo basado en la paleta teal de HealthNet.
 
 ## Requisitos
 
 - Python 3.11 o superior.
-- Conexión a internet para la primera carga y para actualizar los datos vencidos.
 - Navegador moderno con JavaScript habilitado.
+- No hace falta conexión: los datos van incluidos en `data/`. Solo se
+  necesita internet para regenerarlos con `scripts/build_dataset.py`.
 
 Las versiones verificadas están fijadas en `requirements.txt`.
 
@@ -58,11 +62,16 @@ La aplicación queda disponible normalmente en `http://localhost:8501`.
 
 ### Uso
 
-1. Selecciona una ambulancia.
-2. Selecciona uno o más hospitales, clínicas o pacientes.
-3. Usa **Ruta simple** para cubrir el primer destino o **Ruta múltiple** para
-   visitar todos los seleccionados.
-4. Revisa la secuencia, el tiempo y la traza sobre el mapa.
+1. En **Ambulancia de origen**, elige la unidad que sale.
+2. En **Destinos**, busca y añade hospitales, clínicas o pacientes. Cada
+   destino aparece listado debajo, con el icono de su tipo y un botón para
+   quitarlo.
+3. En **Cálculo de ruta**, usa **Ruta simple** para cubrir el primer destino
+   o **Ruta múltiple** para visitar todos los seleccionados. El botón
+   resaltado indica el modo activo.
+4. Revisa el tiempo estimado, el número de paradas y la secuencia; la traza
+   aparece sobre el mapa con el origen marcado como `A` y las paradas
+   numeradas.
 5. Usa **Resetear sistema** para limpiar ruta, ambulancia y destinos.
 
 ## Datos y caché
@@ -109,11 +118,15 @@ debe mantenerse coordinada con esa paleta.
 
 ### Idiomas
 
-La interfaz está en español e inglés, con selector al pie del panel. Las
+La interfaz está en español e inglés, con selector en la barra superior. Las
 cadenas viven en el diccionario `TEXTOS` y se leen con `t("clave")`; añadir un
 idioma es añadir una entrada más. Los nombres de pacientes y ambulancias son
 sintéticos y se traducen; los de hospitales y clínicas vienen de OpenStreetMap y
 se conservan tal cual.
+
+Streamlit deriva la identidad de un widget de sus parámetros, etiqueta
+incluida, así que al traducirla el selector nace vacío. Por eso `cambiar_idioma`
+guarda la selección antes del rerun y `_resembrar_seleccion` la repone.
 
 ## Algoritmos
 
