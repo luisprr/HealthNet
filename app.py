@@ -1107,7 +1107,10 @@ html, body { overflow: hidden; }
 .stApp .hn-rule {
   width: 1px; height: 22px; background: var(--nav-sep); flex: none;
 }
-.stApp .hn-cifras { display: flex; align-items: center; gap: 18px; }
+.stApp .hn-cifras {
+  display: flex; align-items: center; gap: 18px; margin-right: 128px;
+}
+@media (max-width: 720px) { .stApp .hn-cifras { margin-right: 104px; } }
 .stApp .hn-cifra {
   display: flex; align-items: baseline; gap: 10px; margin: 0 !important;
 }
@@ -1390,16 +1393,38 @@ section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(.hn-chip)
   color: var(--ruta) !important; background: var(--surface-2) !important;
 }
 
-.stApp .hn-idioma { margin-top: 4px; }
+/* El selector de idioma se ancla a la barra superior: es un ajuste global y
+   ahi convive con las cifras de la red. Streamlit no permite widgets dentro de
+   HTML propio, asi que se renderiza en el area principal y se fija por CSS. */
+[data-testid="stMain"]
+  [data-testid="stElementContainer"]:has([data-testid="stButtonGroup"]) {
+  position: fixed; top: 0; height: var(--nav-h);
+  right: clamp(20px, 7vw, 150px);
+  display: flex; align-items: center;
+  z-index: 1000002; padding: 0 !important; width: auto !important;
+}
+.stApp [data-testid="stButtonGroup"] {
+  display: flex !important; gap: 8px !important; background: transparent !important;
+  border: none !important; padding: 0 !important;
+}
+/* Los botones cuelgan de un div interno, no del grupo: el gap va ahi. */
+.stApp [data-testid="stButtonGroup"] > * { margin: 0 !important; }
+.stApp [data-testid="stButtonGroup"] > div {
+  display: flex !important; gap: 8px !important;
+}
 .stApp [data-testid="stButtonGroup"] button {
   font-size: 11px !important; font-weight: 700; letter-spacing: .08em;
-  padding: 4px 14px !important; min-height: 28px !important;
-  width: auto !important; border-radius: 7px !important;
+  padding: 5px 13px !important; min-height: 28px !important;
+  width: auto !important; border-radius: 8px !important;
+  margin: 0 !important; border: 1px solid var(--nav-sep) !important;
+  background: var(--surface) !important; color: var(--nav-label) !important;
 }
-.stApp [data-testid="stButtonGroup"] { gap: 4px; }
-section[data-testid="stSidebar"]
-  [data-testid="stElementContainer"]:has([data-testid="stButtonGroup"]) {
-  padding-top: 14px;
+.stApp [data-testid="stButtonGroup"] button:hover {
+  border-color: var(--accent) !important; color: var(--accent) !important;
+}
+.stApp button[data-testid="stBaseButton-segmented_controlActive"] {
+  background: var(--accent) !important; color: #fff !important;
+  border-color: var(--accent) !important;
 }
 
 .hn-carga {
@@ -1737,6 +1762,14 @@ def main():
     velo.empty()
 
     barra_superior(logo, G.number_of_nodes(), G.number_of_edges())
+    st.segmented_control(
+        "idioma",
+        options=IDIOMAS,
+        format_func=str.upper,
+        key="idioma",
+        label_visibility="collapsed",
+        on_change=cambiar_idioma,
+    )
 
     entidades = nodos_df.set_index("entity_id", drop=False)
     nombre_entidad = {
@@ -1911,16 +1944,6 @@ def main():
                 and not destinos_sel
             ),
             on_click=resetear,
-        )
-
-        st.markdown("<div class='hn-idioma'></div>", unsafe_allow_html=True)
-        st.segmented_control(
-            "idioma",
-            options=IDIOMAS,
-            format_func=str.upper,
-            key="idioma",
-            label_visibility="collapsed",
-            on_change=cambiar_idioma,
         )
 
     estado = st.session_state["ruta"]
