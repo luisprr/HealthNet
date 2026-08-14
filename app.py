@@ -1147,8 +1147,15 @@ section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.hn-algo
 section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.hn-ficha) {
   padding-top: 30px;
 }
+/* El boton suelto del panel (Resetear) y el selector de idioma necesitan su
+   propio aire: son hijos directos, a diferencia del par de botones de calculo,
+   que va dentro de un bloque horizontal. */
 section[data-testid="stSidebar"] [data-testid="stVerticalBlock"]
-  > [data-testid="stElementContainer"]:last-child { padding-top: 24px; }
+  > [data-testid="stElementContainer"]:has(.stButton) { padding-top: 24px; }
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"]
+  > [data-testid="stElementContainer"]:has([data-testid="stButtonGroup"]) {
+  padding-top: 20px;
+}
 
 .stApp .hn-paso {
   display: flex; align-items: center; gap: 9px;
@@ -1216,32 +1223,41 @@ li[role="option"]:hover, li[role="option"][aria-selected="true"] {
 .stApp span[data-baseweb="tag"] svg { fill: var(--text-3) !important; }
 .stApp span[data-baseweb="tag"]:hover svg { fill: var(--text) !important; }
 
+/* Un boton con help= va envuelto en stTooltipHoverTarget, no en .stButton, asi
+   que se apunta al propio boton por su testid. Se excluye el control de idioma,
+   que usa el mismo prefijo pero necesita su tamano compacto. */
 .stApp .stButton, .stApp .stButton > button { width: 100%; }
-.stApp .stButton > button {
-  border-radius: 9px !important; font-size: 13px !important; font-weight: 700;
-  padding: 11px 10px !important; min-height: 46px;
+.stApp .stTooltipHoverTarget { width: 100%; }
+.stApp button[data-testid^="stBaseButton-"]:not([data-testid*="segmented"]) {
+  width: 100%;
+  border-radius: 10px !important; font-size: 13px !important; font-weight: 700;
+  padding: 12px 12px !important; min-height: 46px !important;
+  letter-spacing: .005em;
   border: 1px solid transparent; box-shadow: none !important;
   transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
-.stApp .stButton > button[kind="primary"] {
+.stApp button[data-testid="stBaseButton-primary"] {
   background: var(--accent) !important; color: #fff !important;
   border-color: var(--accent) !important;
+  box-shadow: 0 1px 2px rgba(15,118,110,.22) !important;
 }
-.stApp .stButton > button[kind="primary"]:hover {
-  background: var(--accent-hover) !important; border-color: var(--accent-hover) !important;
+.stApp button[data-testid="stBaseButton-primary"]:hover {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
 }
-.stApp .stButton > button[kind="secondary"] {
+.stApp button[data-testid="stBaseButton-secondary"] {
   background: var(--surface) !important; color: var(--text) !important;
   border-color: var(--line) !important;
 }
-.stApp .stButton > button[kind="secondary"]:hover {
+.stApp button[data-testid="stBaseButton-secondary"]:hover {
   background: var(--surface-2) !important; border-color: var(--text-3) !important;
 }
-.stApp .stButton > button:disabled, .stApp .stButton > button:disabled:hover {
+.stApp button[data-testid^="stBaseButton-"]:disabled,
+.stApp button[data-testid^="stBaseButton-"]:disabled:hover {
   background: var(--surface-2) !important; color: var(--text-3) !important;
   border-color: var(--line) !important; opacity: 1 !important; cursor: not-allowed;
 }
-.stApp .stButton > button:focus-visible {
+.stApp button[data-testid^="stBaseButton-"]:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 .stApp [data-testid="stHorizontalBlock"] { gap: 10px !important; }
@@ -1365,12 +1381,12 @@ section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.hn-chip
 section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(.hn-chip) {
   align-items: center; gap: 4px !important;
 }
-.stApp .stButton > button[kind="tertiary"] {
-  min-height: 30px; padding: 0 !important; color: var(--text-3) !important;
+.stApp button[data-testid="stBaseButton-tertiary"] {
+  min-height: 30px !important; padding: 0 !important; width: auto !important; color: var(--text-3) !important;
   font-size: 17px !important; font-weight: 400; background: transparent !important;
   border: none !important;
 }
-.stApp .stButton > button[kind="tertiary"]:hover {
+.stApp button[data-testid="stBaseButton-tertiary"]:hover {
   color: var(--ruta) !important; background: var(--surface-2) !important;
 }
 
@@ -1478,24 +1494,19 @@ section[data-testid="stSidebar"]
 /* Los dos botones de calculo forman un par: el activo va relleno y el otro
    apagado, para que se lea cual esta seleccionado. */
 section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]
-  .stButton > button[kind="secondary"] {
+  button[data-testid="stBaseButton-secondary"] {
   background: var(--surface-2) !important;
   color: var(--text-2) !important;
   border-color: var(--line) !important;
 }
 section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]
-  .stButton > button[kind="secondary"]:hover {
+  button[data-testid="stBaseButton-secondary"]:hover {
   background: var(--surface) !important;
   color: var(--text) !important;
   border-color: var(--text-3) !important;
 }
-.stApp .stButton > button {
-  letter-spacing: .005em;
-  min-height: 44px;
-  border-radius: 10px !important;
-}
-.stApp .stButton > button[kind="primary"] {
-  box-shadow: 0 1px 2px rgba(15,118,110,.25) !important;
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:not(:has(.hn-chip)) {
+  gap: 14px !important;
 }
 """
 
